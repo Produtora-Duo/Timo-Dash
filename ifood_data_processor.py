@@ -3,13 +3,52 @@ iFood Data Processor Module - IMPROVED VERSION
 Processes iFood API data into dashboard-friendly format with complete financial metrics
 """
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
+import os
 import random
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 
 class IFoodDataProcessor:
     """Process iFood API data for dashboard display with complete metrics"""
+
+    @staticmethod
+    def _get_dashboard_timezone():
+        tz_name = str(os.getenv('DASHBOARD_TIMEZONE', 'America/Sao_Paulo') or '').strip()
+        if ZoneInfo and tz_name:
+            try:
+                return ZoneInfo(tz_name)
+            except Exception:
+                pass
+        return timezone(timedelta(hours=-3))
+
+    @staticmethod
+    def _parse_local_datetime(raw_value):
+        if raw_value in (None, ''):
+            return None
+        try:
+            if isinstance(raw_value, (int, float)):
+                timestamp = float(raw_value)
+                if timestamp > 1e12:
+                    timestamp = timestamp / 1000.0
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone(
+                    IFoodDataProcessor._get_dashboard_timezone()
+                )
+
+            text = str(raw_value).strip()
+            if not text:
+                return None
+
+            parsed = datetime.fromisoformat(text.replace('Z', '+00:00'))
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(IFoodDataProcessor._get_dashboard_timezone())
+            return parsed
+        except Exception:
+            return None
 
     @staticmethod
     def _safe_float(value, default: float = 0.0) -> float:
@@ -279,8 +318,9 @@ class IFoodDataProcessor:
                 try:
                     created_at = order.get('createdAt', '')
                     if created_at:
-                        order_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                        hours_with_orders.add(order_date.hour)
+                        order_date = IFoodDataProcessor._parse_local_datetime(created_at)
+                        if order_date:
+                            hours_with_orders.add(order_date.hour)
                 except:
                     pass
             
@@ -504,10 +544,9 @@ class IFoodDataProcessor:
                     continue
                 
                 try:
-                    if 'T' in str(created_at):
-                        order_date = datetime.fromisoformat(str(created_at).replace('Z', '+00:00'))
-                    else:
-                        order_date = datetime.strptime(str(created_at)[:10], '%Y-%m-%d')
+                    order_date = IFoodDataProcessor._parse_local_datetime(created_at)
+                    if not order_date:
+                        continue
                     
                     date_key = order_date.strftime('%d/%m')
                     hour_key = order_date.strftime('%H')
@@ -643,8 +682,10 @@ class IFoodDataProcessor:
         if interruptions:
             for interruption in interruptions:
                 try:
-                    start = datetime.fromisoformat(interruption.get('start', '').replace('Z', '+00:00'))
-                    end = datetime.fromisoformat(interruption.get('end', '').replace('Z', '+00:00'))
+                    start = IFoodDataProcessor._parse_local_datetime(interruption.get('start', ''))
+                    end = IFoodDataProcessor._parse_local_datetime(interruption.get('end', ''))
+                    if not start or not end:
+                        continue
                     
                     # Calculate duration in hours and minutes
                     duration = end - start
