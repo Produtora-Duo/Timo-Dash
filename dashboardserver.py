@@ -4552,7 +4552,7 @@ def _load_org_restaurants(org_id):
     # real order data — e.g. because a different Gunicorn worker hydrated it earlier.
     existing_order_count = _count_orders_in_restaurant_list(org.get('restaurants') or [])
     new_order_count = _count_orders_in_restaurant_list(new_data)
-    if new_order_count > 0 or not org.get('restaurants'):
+    if new_order_count > 0 or not org.get('restaurants') or new_order_count >= existing_order_count:
         org['restaurants'] = new_data
     else:
         # Preserve existing metrics; only update non-metric status fields.
@@ -4579,26 +4579,14 @@ def _load_org_restaurants(org_id):
         1,
         int(str(os.environ.get('ORDERS_CACHE_LIMIT', '300')).strip() or '300')
     )
-    # Watermark guard: do not overwrite DB cache with fewer orders than previously persisted.
-    # Without this, a refresh that gets 0 orders from the API would erase a valid DB cache,
-    # causing subsequent page loads to also see 0 until the next successful fetch.
-    watermark = int(org.get('_db_cache_order_watermark') or 0)
-    if watermark <= 0:
-        try:
-            existing_cache = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=24)
-            existing_count = _count_orders_in_restaurant_list(existing_cache or [])
-            if existing_count > 0:
-                watermark = existing_count
-        except Exception:
-            pass
+    db.save_org_data_cache(
+        org_id,
+        'restaurants',
+        [build_restaurant_cache_record(r, max_orders=cache_order_limit) for r in new_data]
+    )
+    # Advance watermark so keepalive cannot overwrite this full-load result with fewer orders.
     saved_count = _count_orders_in_restaurant_list(new_data)
-    if saved_count > 0 or saved_count >= watermark:
-        db.save_org_data_cache(
-            org_id,
-            'restaurants',
-            [build_restaurant_cache_record(r, max_orders=cache_order_limit) for r in new_data]
-        )
-    org['_db_cache_order_watermark'] = max(watermark, saved_count)
+    org['_db_cache_order_watermark'] = max(int(org.get('_db_cache_order_watermark') or 0), saved_count)
     print(f"  {org_id}: loaded {len(new_data)} restaurants")
 
 
@@ -4629,7 +4617,13 @@ def initialize_all_orgs():
         else:
             api = _init_org_ifood(org_id)
             if api:
-                _load_org_restaurants(org_id)
+                # When an external worker handles refresh, skip the full data
+                # load to avoid split-brain DB writes.  The web process will
+                # sync from the worker's DB cache via _sync_org_restaurants_from_cache.
+                _external_worker_init = bool(REDIS_URL) or str(
+                    os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+                if not _external_worker_init:
+                    _load_org_restaurants(org_id)
     # Set legacy globals for backward compat (use first org's data)
     if orgs:
         first_org_id = orgs[0].get('id')
@@ -4643,9 +4637,20 @@ def initialize_all_orgs():
 
 
 def _init_and_refresh_org(org_id):
-    """Background: init API and refresh data for an org"""
+    """Background: init API and refresh data for an org.
+
+    When an external worker service is expected (REDIS_URL is configured),
+    only initialise the API client so the web process can make on-demand
+    requests.  The full data load is left to the worker to avoid split-brain
+    races where both services write conflicting data to the shared DB.
+    """
     api = _init_org_ifood(org_id)
     if api:
+        # Skip full data load when a dedicated worker handles refresh.
+        _external_worker = bool(REDIS_URL) or str(
+            os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+        if _external_worker:
+            return
         _load_org_restaurants(org_id)
 
 
@@ -5407,20 +5412,34 @@ def initialize_app():
         ('--worker' in sys.argv)
         or (str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on'))
     )
+    # Detect when a separate worker service handles refresh/polling.
+    # If REDIS_URL is configured (even if temporarily unreachable), or
+    # DISABLE_WEB_REFRESH is set, the web process should not run its own
+    # background refresh or keepalive polling to avoid split-brain races
+    # where both services write conflicting data to the shared DB.
+    _has_external_worker = (
+        queue_mode
+        or bool(REDIS_URL)
+        or str(os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+    )
 
     org_values_snapshot = _org_data_values_snapshot()
     if not any((od or {}).get('restaurants') for od in org_values_snapshot):
         print("\nNo org data found; skipping legacy file fallback.")
 
     # Start background refresh for org-scoped data.
-    if not queue_mode:
+    # Skip when a dedicated worker service handles refresh to avoid split-brain.
+    if not queue_mode and not _has_external_worker:
         bg_refresher.interval = 1800  # 30 min
         bg_refresher.start()
+    elif _has_external_worker and not queue_mode:
+        print("Web refresh disabled: external worker detected (REDIS_URL set). "
+              "Data will sync from DB cache written by the worker service.")
 
     # In Redis queue mode, keepalive polling runs inside the dedicated worker loop.
     # Web processes should not poll in parallel, otherwise they can race and persist
     # sparse snapshots over richer data.
-    if IFOOD_KEEPALIVE_POLLING and not is_worker_process and not queue_mode:
+    if IFOOD_KEEPALIVE_POLLING and not is_worker_process and not queue_mode and not _has_external_worker:
         start_keepalive_poller()
     
     org_values_snapshot = _org_data_values_snapshot()
