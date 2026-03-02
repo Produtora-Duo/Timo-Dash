@@ -1669,26 +1669,28 @@
             const m = (record && typeof record.metrics === 'object') ? record.metrics : {};
             const totals = (m && typeof m.totals === 'object') ? m.totals : {};
             const trends = (m && typeof m.trends === 'object') ? m.trends : {};
-            const resolveOrderCount = (...values) => {
-                const nums = values
-                    .map((value) => Number(value))
-                    .filter((value) => Number.isFinite(value) && value >= 0);
-                if (!nums.length) return 0;
-                const positive = nums.filter((value) => value > 0);
-                if (positive.length) return Math.max(...positive);
-                return nums[0];
-            };
-
-            const vendasRaw = resolveOrderCount(
-                totals.total_pedidos,
-                m.total_pedidos,
-                record?.orders,
-                totals.vendas,
-                m.vendas
-            );
             const ticketRaw = pickNumber(totals.ticket_medio, m.ticket_medio, record?.ticket);
             const valorBrutoRaw = pickNumber(totals.valorBruto, m.valor_bruto);
             const liquidoRaw = pickNumber(totals.liquido, m.liquido, record?.revenue);
+            const normalizeCount = (...values) => {
+                for (const value of values) {
+                    const n = Number(value);
+                    if (Number.isFinite(n) && n >= 0) return Math.round(n);
+                }
+                return 0;
+            };
+            const explicitOrders = normalizeCount(
+                totals.total_pedidos,
+                m.total_pedidos,
+                record?.orders
+            );
+            const inferredOrders = (ticketRaw > 0 && liquidoRaw > 0) ? Math.round(liquidoRaw / ticketRaw) : 0;
+            const legacyVendas = normalizeCount(totals.vendas, m.vendas);
+            const vendasRaw = explicitOrders > 0
+                ? explicitOrders
+                : (inferredOrders > 0
+                    ? inferredOrders
+                    : legacyVendas);
 
             const inferredFromTicket = (vendasRaw > 0 && ticketRaw > 0) ? (vendasRaw * ticketRaw) : 0;
             const valorBruto = valorBrutoRaw > 0 ? valorBrutoRaw : (liquidoRaw > 0 ? liquidoRaw : inferredFromTicket);

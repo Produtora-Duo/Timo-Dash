@@ -666,8 +666,8 @@ def _count_orders_in_restaurant_list(restaurants) -> int:
         try:
             metric_orders = int(
                 (metrics or {}).get('total_pedidos')
-                or (metrics or {}).get('vendas')
                 or restaurant.get('orders')
+                or (metrics or {}).get('vendas')
                 or 0
             )
         except Exception:
@@ -2142,7 +2142,12 @@ def aggregate_dashboard_summary(restaurants):
     for restaurant in restaurants:
         metrics = restaurant.get('metrics', {})
         trends = metrics.get('trends') or {}
-        total_orders += int(metrics.get('total_pedidos') or metrics.get('vendas') or 0)
+        total_orders += int(
+            metrics.get('total_pedidos')
+            or restaurant.get('orders')
+            or metrics.get('vendas')
+            or 0
+        )
         gross_revenue += float(metrics.get('valor_bruto') or 0)
         net_revenue += float(metrics.get('liquido') or 0)
         trend_vendas = float(trends.get('vendas') or 0)
@@ -2387,7 +2392,12 @@ def evaluate_restaurant_quality(restaurant, reference_last_refresh=None):
     score = 100
     now = datetime.utcnow()
     metrics = restaurant.get('metrics', {}) or {}
-    total_orders = int(metrics.get('vendas') or metrics.get('total_pedidos') or restaurant.get('orders') or 0)
+    total_orders = int(
+        metrics.get('total_pedidos')
+        or restaurant.get('orders')
+        or metrics.get('vendas')
+        or 0
+    )
     manager = str(restaurant.get('manager') or '').strip()
     neighborhood = str(restaurant.get('neighborhood') or '').strip()
 

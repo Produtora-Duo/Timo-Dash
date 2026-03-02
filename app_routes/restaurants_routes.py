@@ -100,8 +100,8 @@ def register(app, deps):
                 try:
                     snapshot_orders_total = int(
                         (metrics_snapshot or {}).get('total_pedidos')
-                        or (metrics_snapshot or {}).get('vendas')
                         or r.get('orders')
+                        or (metrics_snapshot or {}).get('vendas')
                         or 0
                     )
                 except Exception:
@@ -242,8 +242,8 @@ def register(app, deps):
                     try:
                         metrics_total_orders = int(
                             (metrics_snapshot or {}).get('total_pedidos')
-                            or (metrics_snapshot or {}).get('vendas')
                             or r.get('orders')
+                            or (metrics_snapshot or {}).get('vendas')
                             or 0
                         )
                     except Exception:
@@ -351,8 +351,8 @@ def register(app, deps):
             try:
                 snapshot_orders_total = int(
                     (metrics_snapshot or {}).get('total_pedidos')
-                    or (metrics_snapshot or {}).get('vendas')
                     or restaurant.get('orders')
+                    or (metrics_snapshot or {}).get('vendas')
                     or 0
                 )
             except Exception:
