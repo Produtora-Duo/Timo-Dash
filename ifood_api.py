@@ -8,6 +8,7 @@ import json
 import os
 import re
 import hashlib
+import random
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from pathlib import Path
@@ -98,6 +99,34 @@ class IFoodAPI:
             status = 0
         # Optional fallback endpoint: unsupported scope is expected for many tenants.
         return endpoint_text == '/order/v1.0/orders' and status in (404, 405)
+
+    def get_last_http_error(self) -> Dict:
+        """Expose latest transport/API error for route-layer status mapping."""
+        if isinstance(self._last_http_error, dict):
+            return dict(self._last_http_error)
+        return {}
+
+    def _is_retryable_http_status(self, status_code: int) -> bool:
+        return int(status_code or 0) in (429, 500, 502, 503, 504)
+
+    def _should_retry_after_error(self, error_payload: Dict) -> bool:
+        if not isinstance(error_payload, dict):
+            return False
+        try:
+            status_code = int(error_payload.get('status') or 0)
+        except Exception:
+            status_code = 0
+        # status=0 represents transport/network failures.
+        if status_code == 0:
+            return True
+        return self._is_retryable_http_status(status_code)
+
+    def _retry_sleep_seconds(self, attempt: int, base: float, cap: float, jitter: float) -> float:
+        attempt_idx = max(0, int(attempt))
+        raw_delay = float(base) * (2 ** attempt_idx)
+        bounded_delay = min(float(cap), raw_delay)
+        jitter_seconds = random.uniform(0.0, max(0.0, float(jitter)))
+        return min(float(cap), bounded_delay + jitter_seconds)
 
     def _ensure_mock_merchant(self, merchant_id: str):
         """Create deterministic mock merchant payload when absent."""
@@ -1137,6 +1166,24 @@ class IFoodAPI:
         
         result = self._request('DELETE', f'/merchant/v1.0/merchants/{merchant_id}/interruptions/{interruption_id}')
         return result is not None
+
+    def get_opening_hours(self, merchant_id: str):
+        """Get merchant opening-hours configuration."""
+        if self.use_mock_data:
+            # Keep mock shape simple and deterministic for UI flows.
+            return {'timezone': 'America/Sao_Paulo', 'openingHours': []}
+        return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}/opening-hours')
+
+    def update_opening_hours(self, merchant_id: str, opening_hours, timezone_name: str = None):
+        """Replace merchant opening-hours configuration."""
+        payload = {}
+        if isinstance(opening_hours, list):
+            payload['openingHours'] = opening_hours
+        elif isinstance(opening_hours, dict):
+            payload = dict(opening_hours)
+        if timezone_name and not payload.get('timezone'):
+            payload['timezone'] = timezone_name
+        return self._request('PUT', f'/merchant/v1.0/merchants/{merchant_id}/opening-hours', data=payload)
     
     def get_merchant_status(self, merchant_id: str) -> Optional[Dict]:
         """Get merchant operational status"""
@@ -1269,7 +1316,26 @@ class IFoodAPI:
 
         url = f"{self.BASE_URL}{endpoint}"
         timeout_seconds = float(os.environ.get('IFOOD_HTTP_TIMEOUT', 20))
-        max_attempts = 2  # initial request + one re-auth retry
+        try:
+            max_attempts = int(str(os.environ.get('IFOOD_HTTP_MAX_ATTEMPTS', '3')).strip() or '3')
+        except Exception:
+            max_attempts = 3
+        max_attempts = max(1, min(max_attempts, 8))
+        try:
+            retry_base_seconds = float(str(os.environ.get('IFOOD_HTTP_RETRY_BASE_SECONDS', '0.5')).strip() or '0.5')
+        except Exception:
+            retry_base_seconds = 0.5
+        retry_base_seconds = max(0.1, retry_base_seconds)
+        try:
+            retry_cap_seconds = float(str(os.environ.get('IFOOD_HTTP_RETRY_MAX_SECONDS', '8')).strip() or '8')
+        except Exception:
+            retry_cap_seconds = 8.0
+        retry_cap_seconds = max(retry_base_seconds, retry_cap_seconds)
+        try:
+            retry_jitter_seconds = float(str(os.environ.get('IFOOD_HTTP_RETRY_JITTER_SECONDS', '0.35')).strip() or '0.35')
+        except Exception:
+            retry_jitter_seconds = 0.35
+        retry_jitter_seconds = max(0.0, retry_jitter_seconds)
 
         for attempt in range(max_attempts):
             if not self.access_token and not self.authenticate():
@@ -1283,7 +1349,19 @@ class IFoodAPI:
                     if attempt < (max_attempts - 1):
                         continue
                     return None
-                return fallback_result
+                if fallback_result is not None:
+                    return fallback_result
+                if attempt < (max_attempts - 1) and self._should_retry_after_error(self.get_last_http_error()):
+                    time.sleep(
+                        self._retry_sleep_seconds(
+                            attempt,
+                            retry_base_seconds,
+                            retry_cap_seconds,
+                            retry_jitter_seconds
+                        )
+                    )
+                    continue
+                return None
 
             try:
                 if method == 'GET':
@@ -1318,6 +1396,16 @@ class IFoodAPI:
                 self._last_http_error = {'status': int(response.status_code or 0), 'endpoint': endpoint, 'detail': response.text}
                 if not self._should_suppress_http_error_log(endpoint, response.status_code):
                     print(f"API Error: {response.status_code} - {response.text}")
+                if attempt < (max_attempts - 1) and self._is_retryable_http_status(response.status_code):
+                    time.sleep(
+                        self._retry_sleep_seconds(
+                            attempt,
+                            retry_base_seconds,
+                            retry_cap_seconds,
+                            retry_jitter_seconds
+                        )
+                    )
+                    continue
                 return None
 
             except RecursionError:
@@ -1330,7 +1418,19 @@ class IFoodAPI:
                     if attempt < (max_attempts - 1):
                         continue
                     return None
-                return fallback_result
+                if fallback_result is not None:
+                    return fallback_result
+                if attempt < (max_attempts - 1) and self._should_retry_after_error(self.get_last_http_error()):
+                    time.sleep(
+                        self._retry_sleep_seconds(
+                            attempt,
+                            retry_base_seconds,
+                            retry_cap_seconds,
+                            retry_jitter_seconds
+                        )
+                    )
+                    continue
+                return None
             except Exception as e:
                 self._last_http_error = {'status': 0, 'endpoint': endpoint, 'detail': str(e)}
                 print(f"Request error: {e}; trying urllib fallback")
@@ -1341,7 +1441,19 @@ class IFoodAPI:
                     if attempt < (max_attempts - 1):
                         continue
                     return None
-                return fallback_result
+                if fallback_result is not None:
+                    return fallback_result
+                if attempt < (max_attempts - 1) and self._should_retry_after_error(self.get_last_http_error()):
+                    time.sleep(
+                        self._retry_sleep_seconds(
+                            attempt,
+                            retry_base_seconds,
+                            retry_cap_seconds,
+                            retry_jitter_seconds
+                        )
+                    )
+                    continue
+                return None
 
         return None
 

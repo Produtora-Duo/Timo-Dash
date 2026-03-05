@@ -398,6 +398,8 @@ _IFOOD_INGESTION_METRICS = {
     'polling_last_run_at': None,
     'webhook_last_error_at': None,
 }
+_MERCHANT_STATUS_TRACKER_LOCK = threading.Lock()
+_MERCHANT_STATUS_TRACKER = {}
 
 
 def _update_ifood_ingestion_metrics(**updates):
@@ -2237,6 +2239,87 @@ def _extract_status_message_text(raw_message) -> str:
     return str(raw_message or '').strip()
 
 
+def _extract_reopenable_flag(status_payload) -> Optional[bool]:
+    if not isinstance(status_payload, dict):
+        return None
+    reopenable = status_payload.get('reopenable')
+    candidate = reopenable
+    if isinstance(reopenable, dict):
+        candidate = (
+            reopenable.get('reopenable')
+            if reopenable.get('reopenable') is not None
+            else reopenable.get('isReopenable')
+            if reopenable.get('isReopenable') is not None
+            else reopenable.get('canReopen')
+        )
+    if isinstance(candidate, bool):
+        return candidate
+    text = str(candidate or '').strip().lower()
+    if text in ('true', '1', 'yes', 'sim'):
+        return True
+    if text in ('false', '0', 'no', 'nao', 'não'):
+        return False
+    return None
+
+
+def _track_merchant_status_transition(merchant_id, state_raw, is_closed, message, reopenable):
+    merchant_key = normalize_merchant_id(merchant_id) or str(merchant_id or '').strip()
+    if not merchant_key:
+        return
+    snapshot = {
+        'state': str(state_raw or '').strip().upper() or 'UNKNOWN',
+        'is_closed': bool(is_closed),
+        'message': str(message or '').strip(),
+        'reopenable': reopenable if isinstance(reopenable, bool) else None,
+        'changed_at': _iso_utc_now(),
+    }
+    previous = None
+    has_changed = False
+    with _MERCHANT_STATUS_TRACKER_LOCK:
+        previous = _MERCHANT_STATUS_TRACKER.get(merchant_key)
+        prev_comp = (
+            (previous or {}).get('state'),
+            bool((previous or {}).get('is_closed')),
+            str((previous or {}).get('message') or ''),
+            (previous or {}).get('reopenable'),
+        )
+        next_comp = (
+            snapshot.get('state'),
+            snapshot.get('is_closed'),
+            snapshot.get('message'),
+            snapshot.get('reopenable'),
+        )
+        has_changed = prev_comp != next_comp
+        _MERCHANT_STATUS_TRACKER[merchant_key] = snapshot
+
+    if not has_changed:
+        return
+
+    logger.info(
+        "Merchant status changed merchant=%s state=%s closed=%s reopenable=%s message=%s",
+        merchant_key,
+        snapshot.get('state'),
+        snapshot.get('is_closed'),
+        snapshot.get('reopenable'),
+        _truncate_text(snapshot.get('message'), 220),
+    )
+    if snapshot.get('state') == 'ERROR':
+        prev_state = str((previous or {}).get('state') or '').strip().upper()
+        if prev_state != 'ERROR':
+            logger.error(
+                "Merchant entered ERROR state merchant=%s reopenable=%s message=%s",
+                merchant_key,
+                snapshot.get('reopenable'),
+                _truncate_text(snapshot.get('message'), 220),
+            )
+    _append_ifood_evidence_entry({
+        'type': 'ifood_status_transition',
+        'merchant_id': merchant_key,
+        'previous': previous or {},
+        'current': snapshot,
+    })
+
+
 def detect_restaurant_closure(api_client, merchant_id):
     """Infer if a store is currently closed using interruptions + merchant status."""
     now = datetime.utcnow()
@@ -2306,6 +2389,7 @@ def detect_restaurant_closure(api_client, merchant_id):
     state_raw = str(status_payload.get('state') or status_payload.get('status') or '').strip().upper()
     message = _extract_status_message_text(status_payload.get('message'))
     available_flag = status_payload.get('available')
+    reopenable_flag = _extract_reopenable_flag(status_payload)
 
     open_status_values = {'OK', 'OPEN', 'AVAILABLE', 'ONLINE', 'TRUE'}
     closed_status_values = {
@@ -2378,11 +2462,22 @@ def detect_restaurant_closure(api_client, merchant_id):
         active_reason = None
         closed_until = None
 
+    _track_merchant_status_transition(
+        merchant_id=merchant_id,
+        state_raw=state_raw,
+        is_closed=is_closed,
+        message=message or active_reason,
+        reopenable=reopenable_flag
+    )
+
     return {
         'is_closed': is_closed,
         'closure_reason': active_reason,
         'closed_until': closed_until.isoformat() if closed_until else None,
-        'active_interruptions_count': active_interruptions
+        'active_interruptions_count': active_interruptions,
+        'state': state_raw or None,
+        'status_message': message or None,
+        'reopenable': reopenable_flag,
     }
 
 
@@ -3671,6 +3766,9 @@ def _refresh_restaurant_metrics_from_cache(restaurant: dict, merchant_id: str) -
         'closure_reason': restaurant.get('closure_reason'),
         'closed_until': restaurant.get('closed_until'),
         'active_interruptions_count': restaurant.get('active_interruptions_count'),
+        'state': restaurant.get('state'),
+        'status_message': restaurant.get('status_message'),
+        'reopenable': restaurant.get('reopenable'),
     }
 
     merchant_details = {
@@ -3711,6 +3809,9 @@ def _refresh_restaurant_closure(org_data: dict, api_client, merchant_id: str) ->
     restaurant_record['closure_reason'] = closure.get('closure_reason')
     restaurant_record['closed_until'] = closure.get('closed_until')
     restaurant_record['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
+    restaurant_record['state'] = closure.get('state')
+    restaurant_record['status_message'] = closure.get('status_message')
+    restaurant_record['reopenable'] = closure.get('reopenable')
     return True
 
 
@@ -4598,7 +4699,10 @@ def _load_org_restaurants(org_id):
             'is_closed': False,
             'closure_reason': None,
             'closed_until': None,
-            'active_interruptions_count': 0
+            'active_interruptions_count': 0,
+            'state': None,
+            'status_message': None,
+            'reopenable': None,
         }
         try:
             fetched_closure = detect_restaurant_closure(api, merchant_id) or {}
@@ -4606,7 +4710,10 @@ def _load_org_restaurants(org_id):
                 'is_closed': bool(fetched_closure.get('is_closed')),
                 'closure_reason': fetched_closure.get('closure_reason'),
                 'closed_until': fetched_closure.get('closed_until'),
-                'active_interruptions_count': int(fetched_closure.get('active_interruptions_count') or 0)
+                'active_interruptions_count': int(fetched_closure.get('active_interruptions_count') or 0),
+                'state': fetched_closure.get('state'),
+                'status_message': fetched_closure.get('status_message'),
+                'reopenable': fetched_closure.get('reopenable'),
             })
         except Exception as e:
             print(f"  WARN Org {org_id}, merchant {merchant_id}: closure fetch failed: {e}")
@@ -4616,6 +4723,9 @@ def _load_org_restaurants(org_id):
         restaurant_data['closure_reason'] = closure.get('closure_reason')
         restaurant_data['closed_until'] = closure.get('closed_until')
         restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
+        restaurant_data['state'] = closure.get('state')
+        restaurant_data['status_message'] = closure.get('status_message')
+        restaurant_data['reopenable'] = closure.get('reopenable')
         new_data.append(restaurant_data)
     # Guard: do not overwrite existing data with sparse refreshes.
     # This happens when get_orders omits test orders or returns partial payloads.
@@ -4657,7 +4767,15 @@ def _load_org_restaurants(org_id):
                 or (new_order_count <= 0 and existing_order_count <= 0)
             ):
                 preserved = dict(existing)
-                for field in ('is_closed', 'closure_reason', 'closed_until', 'active_interruptions_count'):
+                for field in (
+                    'is_closed',
+                    'closure_reason',
+                    'closed_until',
+                    'active_interruptions_count',
+                    'state',
+                    'status_message',
+                    'reopenable',
+                ):
                     preserved[field] = r.get(field, preserved.get(field))
                 merged.append(preserved)
             else:

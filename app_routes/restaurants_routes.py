@@ -44,6 +44,175 @@ def register(app, deps):
     bind_dependencies(globals(), deps, REQUIRED_DEPS)
     bp = Blueprint('restaurants_routes', __name__)
 
+    def _parse_ifood_error_status(api, default_status=500):
+        err = {}
+        getter = getattr(api, 'get_last_http_error', None)
+        if callable(getter):
+            try:
+                err = getter() or {}
+            except Exception:
+                err = {}
+        elif isinstance(getattr(api, '_last_http_error', None), dict):
+            err = dict(getattr(api, '_last_http_error', None) or {})
+        try:
+            status_code = int(err.get('status') or 0)
+        except Exception:
+            status_code = 0
+        if status_code <= 0:
+            return default_status
+        return status_code
+
+    def _ifood_error_response(api, *, action='operacao iFood', default_status=500):
+        status_code = _parse_ifood_error_status(api, default_status=default_status)
+        if status_code == 400:
+            return jsonify({
+                'success': False,
+                'error': f'Falha de validacao ao executar {action}. Revise campos obrigatorios e formato dos horarios.'
+            }), 400
+        if status_code == 401:
+            return jsonify({
+                'success': False,
+                'error': 'Nao autorizado no iFood. Revise as credenciais da organizacao.'
+            }), 401
+        if status_code == 403:
+            return jsonify({
+                'success': False,
+                'error': 'Permissao insuficiente no iFood para a loja informada.'
+            }), 403
+        if status_code == 409:
+            return jsonify({
+                'success': False,
+                'error': 'Conflito detectado (ex.: sobreposicao de interrupcao/horario). Ajuste a janela e tente novamente.'
+            }), 409
+        if status_code == 429:
+            return jsonify({
+                'success': False,
+                'error': 'Limite de requisicoes iFood atingido. Tente novamente em instantes.'
+            }), 429
+        if 500 <= status_code <= 599:
+            return jsonify({
+                'success': False,
+                'error': 'iFood indisponivel no momento. Tente novamente com backoff.'
+            }), 502
+        return jsonify({'success': False, 'error': f'Falha ao executar {action}.'}), default_status
+
+    def _parse_reopenable_flag(status_payload):
+        if not isinstance(status_payload, dict):
+            return None
+        reopenable = status_payload.get('reopenable')
+        candidate = reopenable
+        if isinstance(reopenable, dict):
+            candidate = (
+                reopenable.get('reopenable')
+                if reopenable.get('reopenable') is not None
+                else reopenable.get('isReopenable')
+                if reopenable.get('isReopenable') is not None
+                else reopenable.get('canReopen')
+            )
+        if isinstance(candidate, bool):
+            return candidate
+        text = str(candidate or '').strip().lower()
+        if text in ('true', '1', 'yes', 'sim'):
+            return True
+        if text in ('false', '0', 'no', 'nao', 'não'):
+            return False
+        return None
+
+    def _parse_iso_datetime(raw_value):
+        value = str(raw_value or '').strip()
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except Exception:
+            return None
+
+    def _normalize_day_of_week(day_raw):
+        if isinstance(day_raw, int):
+            if 0 <= day_raw <= 6:
+                return day_raw
+            if 1 <= day_raw <= 7:
+                return day_raw - 1
+            return None
+        text = str(day_raw or '').strip().lower()
+        mapping = {
+            '0': 0, '1': 0, 'mon': 0, 'monday': 0, 'segunda': 0, 'segunda-feira': 0,
+            '2': 1, 'tue': 1, 'tuesday': 1, 'terca': 1, 'terça': 1, 'terca-feira': 1, 'terça-feira': 1,
+            '3': 2, 'wed': 2, 'wednesday': 2, 'quarta': 2, 'quarta-feira': 2,
+            '4': 3, 'thu': 3, 'thursday': 3, 'quinta': 3, 'quinta-feira': 3,
+            '5': 4, 'fri': 4, 'friday': 4, 'sexta': 4, 'sexta-feira': 4,
+            '6': 5, 'sat': 5, 'saturday': 5, 'sabado': 5, 'sábado': 5,
+            '7': 6, 'sun': 6, 'sunday': 6, 'domingo': 6,
+        }
+        return mapping.get(text)
+
+    def _hhmmss_to_seconds(text):
+        value = str(text or '').strip()
+        parts = value.split(':')
+        if len(parts) != 3:
+            return None
+        try:
+            hours, minutes, seconds = [int(p) for p in parts]
+        except Exception:
+            return None
+        if not (0 <= hours <= 23 and 0 <= minutes <= 59 and 0 <= seconds <= 59):
+            return None
+        return hours * 3600 + minutes * 60 + seconds
+
+    def _normalize_opening_hours_entries(raw_entries):
+        if not isinstance(raw_entries, list):
+            return None, 'opening_hours deve ser uma lista'
+        normalized = []
+        day_presence = set()
+        by_day = {d: [] for d in range(7)}
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                return None, 'Cada item de opening_hours deve ser objeto'
+            day_raw = (
+                entry.get('dayOfWeek')
+                if entry.get('dayOfWeek') is not None
+                else entry.get('day_of_week')
+                if entry.get('day_of_week') is not None
+                else entry.get('day')
+            )
+            day = _normalize_day_of_week(day_raw)
+            if day is None:
+                return None, 'dayOfWeek invalido; use 0-6 (ou 1-7) e inclua todos os dias'
+            day_presence.add(day)
+            start = entry.get('start') or entry.get('startTime') or entry.get('from')
+            end = entry.get('end') or entry.get('endTime') or entry.get('to')
+            start_seconds = _hhmmss_to_seconds(start)
+            end_seconds = _hhmmss_to_seconds(end)
+            if start_seconds is None or end_seconds is None:
+                return None, 'Horario invalido; use formato HH:MM:SS'
+            if end_seconds <= start_seconds:
+                return None, 'Horario invalido; fim deve ser maior que inicio no mesmo dia'
+            duration_minutes = int((end_seconds - start_seconds) / 60)
+            if duration_minutes <= 0:
+                return None, 'Duracao do turno deve ser maior que zero'
+            normalized_item = {
+                'dayOfWeek': int(day),
+                'start': str(start).strip(),
+                'end': str(end).strip(),
+            }
+            if entry.get('description'):
+                normalized_item['description'] = str(entry.get('description')).strip()
+            normalized.append(normalized_item)
+            by_day[day].append((start_seconds, end_seconds))
+
+        if day_presence != set(range(7)):
+            return None, 'Envie configuracao para todos os dias da semana (0-6)'
+
+        for day in range(7):
+            slots = sorted(by_day.get(day) or [])
+            for idx in range(1, len(slots)):
+                prev_start, prev_end = slots[idx - 1]
+                cur_start, _ = slots[idx]
+                if cur_start < prev_end:
+                    return None, 'Turnos sobrepostos detectados no mesmo dia'
+
+        return normalized, None
+
     @bp.route('/api/restaurants')
     @login_required
     def api_restaurants():
@@ -170,6 +339,9 @@ def register(app, deps):
                 r['closure_reason'] = closure.get('closure_reason')
                 r['closed_until'] = closure.get('closed_until')
                 r['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
+                r['state'] = closure.get('state')
+                r['status_message'] = closure.get('status_message')
+                r['reopenable'] = closure.get('reopenable')
             
                 # If month filter is specified, reprocess with filtered orders
                 if month_filter != 0:
@@ -212,6 +384,9 @@ def register(app, deps):
                         restaurant_data['closure_reason'] = closure.get('closure_reason')
                         restaurant_data['closed_until'] = closure.get('closed_until')
                         restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
+                        restaurant_data['state'] = closure.get('state')
+                        restaurant_data['status_message'] = closure.get('status_message')
+                        restaurant_data['reopenable'] = closure.get('reopenable')
                     
                         # Remove internal caches before sending
                         restaurant = {k: v for k, v in restaurant_data.items() if not k.startswith('_')}
@@ -407,7 +582,15 @@ def register(app, deps):
                     )
                     response_data['name'] = restaurant.get('name', response_data.get('name'))
                     response_data['manager'] = restaurant.get('manager', response_data.get('manager'))
-                    for closure_key in ('is_closed', 'closure_reason', 'closed_until', 'active_interruptions_count'):
+                    for closure_key in (
+                        'is_closed',
+                        'closure_reason',
+                        'closed_until',
+                        'active_interruptions_count',
+                        'state',
+                        'status_message',
+                        'reopenable',
+                    ):
                         if closure_key in restaurant:
                             response_data[closure_key] = restaurant.get(closure_key)
                 else:
@@ -587,6 +770,8 @@ def register(app, deps):
         
             # Get interruptions
             interruptions = api.get_interruptions(merchant_lookup_id)
+            if interruptions is None:
+                return _ifood_error_response(api, action='consulta de interrupcoes', default_status=502)
         
             return jsonify({
                 'success': True,
@@ -613,6 +798,8 @@ def register(app, deps):
         
             # Get status
             status = api.get_merchant_status(merchant_lookup_id)
+            if status is None:
+                return _ifood_error_response(api, action='consulta de status', default_status=502)
         
             return jsonify({
                 'success': True,
@@ -638,12 +825,26 @@ def register(app, deps):
             merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
         
             data = get_json_payload()
+            if not isinstance(data, dict):
+                return jsonify({'success': False, 'error': 'Invalid payload'}), 400
             start = data.get('start')
             end = data.get('end')
             description = data.get('description', '')
         
             if not start or not end:
                 return jsonify({'success': False, 'error': 'Start and end times required'}), 400
+            if len(str(description or '').strip()) < 4:
+                return jsonify({'success': False, 'error': 'Description is required and must be clear'}), 400
+
+            start_dt = _parse_iso_datetime(start)
+            end_dt = _parse_iso_datetime(end)
+            if not start_dt or not end_dt:
+                return jsonify({'success': False, 'error': 'Invalid datetime format; use ISO-8601'}), 400
+            if end_dt <= start_dt:
+                return jsonify({'success': False, 'error': 'End must be greater than start'}), 400
+            max_window_seconds = 7 * 24 * 60 * 60
+            if (end_dt - start_dt).total_seconds() > max_window_seconds:
+                return jsonify({'success': False, 'error': 'Interruption duration cannot exceed 7 days'}), 400
         
             # Create interruption
             result = api.create_interruption(merchant_lookup_id, start, end, description)
@@ -654,8 +855,7 @@ def register(app, deps):
                     'interruption': result,
                     'message': 'Interruption created successfully'
                 })
-            else:
-                return jsonify({'success': False, 'error': 'Failed to create interruption'}), 500
+            return _ifood_error_response(api, action='criacao de interrupcao', default_status=502)
         
         except Exception as e:
             print(f"Error creating interruption: {e}")
@@ -674,6 +874,17 @@ def register(app, deps):
 
             restaurant = find_restaurant_by_identifier(restaurant_id)
             merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+
+            # Reopen should be blocked when iFood marks merchant as not reopenable.
+            status_payload = api.get_merchant_status(merchant_lookup_id)
+            if status_payload is None:
+                return _ifood_error_response(api, action='consulta de status antes de reabertura', default_status=502)
+            reopenable = _parse_reopenable_flag(status_payload)
+            if reopenable is False:
+                return jsonify({
+                    'success': False,
+                    'error': 'Loja bloqueada para reabertura no iFood (reopenable=false).'
+                }), 409
         
             # Delete interruption
             success = api.delete_interruption(merchant_lookup_id, interruption_id)
@@ -683,11 +894,87 @@ def register(app, deps):
                     'success': True,
                     'message': 'Interruption removed successfully'
                 })
-            else:
-                return jsonify({'success': False, 'error': 'Failed to remove interruption'}), 500
+            return _ifood_error_response(api, action='remocao de interrupcao', default_status=502)
         
         except Exception as e:
             print(f"Error deleting interruption: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/restaurant/<restaurant_id>/opening-hours')
+    @login_required
+    def api_restaurant_opening_hours(restaurant_id):
+        """Get opening-hours for a specific restaurant."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+
+            if not hasattr(api, 'get_opening_hours'):
+                return jsonify({'success': False, 'error': 'Opening-hours API not supported by client'}), 501
+
+            opening_hours = api.get_opening_hours(merchant_lookup_id)
+            if opening_hours is None:
+                return _ifood_error_response(api, action='consulta de horario de funcionamento', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'opening_hours': opening_hours
+            })
+        except Exception as e:
+            print(f"Error getting opening hours: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/restaurant/<restaurant_id>/opening-hours', methods=['PUT'])
+    @admin_required
+    def api_update_restaurant_opening_hours(restaurant_id):
+        """Replace opening-hours for a specific restaurant."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if not hasattr(api, 'update_opening_hours'):
+                return jsonify({'success': False, 'error': 'Opening-hours API not supported by client'}), 501
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+
+            data = get_json_payload()
+            if not isinstance(data, dict):
+                return jsonify({'success': False, 'error': 'Invalid payload'}), 400
+
+            opening_hours_raw = (
+                data.get('opening_hours')
+                if data.get('opening_hours') is not None
+                else data.get('openingHours')
+                if data.get('openingHours') is not None
+                else data.get('hours')
+            )
+            timezone_name = str(data.get('timezone') or '').strip() or None
+
+            normalized_hours, validation_error = _normalize_opening_hours_entries(opening_hours_raw)
+            if validation_error:
+                return jsonify({'success': False, 'error': validation_error}), 400
+
+            updated = api.update_opening_hours(
+                merchant_lookup_id,
+                opening_hours=normalized_hours,
+                timezone_name=timezone_name
+            )
+            if updated is None:
+                return _ifood_error_response(api, action='atualizacao de horario de funcionamento', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'opening_hours': updated,
+                'message': 'Opening-hours updated successfully'
+            })
+        except Exception as e:
+            print(f"Error updating opening hours: {e}")
             log_exception("request_exception", e)
             return internal_error_response()
 

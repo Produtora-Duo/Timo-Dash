@@ -47,6 +47,26 @@ def normalize_closure(record, *, api_client=None, extract_status_message_text=No
     is_closed = to_bool_flag(record.get('is_closed')) or to_bool_flag(record.get('isClosed'))
     reason = record.get('closure_reason') or record.get('closureReason')
     closed_until = record.get('closed_until') or record.get('closedUntil')
+    state = record.get('state') or record.get('operational_status')
+    status_message = record.get('status_message') or record.get('statusMessage')
+    reopenable_raw = record.get('reopenable')
+    if isinstance(reopenable_raw, dict):
+        reopenable_raw = (
+            reopenable_raw.get('reopenable')
+            if reopenable_raw.get('reopenable') is not None
+            else reopenable_raw.get('isReopenable')
+            if reopenable_raw.get('isReopenable') is not None
+            else reopenable_raw.get('canReopen')
+        )
+    reopenable = None
+    if isinstance(reopenable_raw, bool):
+        reopenable = reopenable_raw
+    elif isinstance(reopenable_raw, str):
+        text = reopenable_raw.strip().lower()
+        if text in ('true', '1', 'yes', 'sim'):
+            reopenable = True
+        elif text in ('false', '0', 'no', 'nao', 'não'):
+            reopenable = False
     try:
         active_interruptions = int(record.get('active_interruptions_count') or record.get('activeInterruptionsCount') or 0)
     except Exception:
@@ -63,6 +83,10 @@ def normalize_closure(record, *, api_client=None, extract_status_message_text=No
             'closedUntil',
             'active_interruptions_count',
             'activeInterruptionsCount',
+            'state',
+            'status_message',
+            'statusMessage',
+            'reopenable',
         )
     )
 
@@ -97,6 +121,10 @@ def normalize_closure(record, *, api_client=None, extract_status_message_text=No
             is_closed = to_bool_flag(fetched.get('is_closed')) or is_closed
             reason = fetched.get('closure_reason') or reason
             closed_until = fetched.get('closed_until') or closed_until
+            state = fetched.get('state') or state
+            status_message = fetched.get('status_message') or status_message
+            if isinstance(fetched.get('reopenable'), bool):
+                reopenable = fetched.get('reopenable')
             try:
                 active_interruptions = int(fetched.get('active_interruptions_count') or active_interruptions or 0)
             except Exception:
@@ -113,6 +141,9 @@ def normalize_closure(record, *, api_client=None, extract_status_message_text=No
         'closure_reason': reason,
         'closed_until': closed_until,
         'active_interruptions_count': int(active_interruptions or 0),
+        'state': state,
+        'status_message': status_message,
+        'reopenable': reopenable,
     }
 
 
