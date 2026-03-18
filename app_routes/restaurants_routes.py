@@ -175,6 +175,118 @@ def register(app, deps):
         except Exception:
             return None
 
+    def _parse_optional_int(raw_value, *, minimum=0, maximum=1000, default=None):
+        text = str(raw_value or '').strip()
+        if not text:
+            return default
+        try:
+            value = int(text)
+        except Exception:
+            return default
+        return max(minimum, min(maximum, value))
+
+    def _get_homologation_financial_filters(payload=None):
+        data = payload if isinstance(payload, dict) else {}
+        merchant_id = str(
+            request.args.get('merchant_id')
+            or request.args.get('merchantId')
+            or data.get('merchant_id')
+            or data.get('merchantId')
+            or ''
+        ).strip()
+        if not merchant_id:
+            return None, (jsonify({'success': False, 'error': 'Merchant ID required'}), 400)
+
+        filters = {
+            'merchant_id': merchant_id,
+            'start_date': str(
+                request.args.get('start_date')
+                or request.args.get('startDate')
+                or data.get('start_date')
+                or data.get('startDate')
+                or ''
+            ).strip() or None,
+            'end_date': str(
+                request.args.get('end_date')
+                or request.args.get('endDate')
+                or data.get('end_date')
+                or data.get('endDate')
+                or ''
+            ).strip() or None,
+            'competence': str(
+                request.args.get('competence')
+                or request.args.get('competencia')
+                or data.get('competence')
+                or data.get('competencia')
+                or ''
+            ).strip() or None,
+            'page': _parse_optional_int(
+                request.args.get('page')
+                if request.args.get('page') is not None
+                else data.get('page'),
+                minimum=0,
+                maximum=10000,
+                default=None
+            ),
+            'size': _parse_optional_int(
+                request.args.get('size')
+                if request.args.get('size') is not None
+                else data.get('size'),
+                minimum=1,
+                maximum=500,
+                default=None
+            ),
+        }
+        return filters, None
+
+    def _get_homologation_review_filters(payload=None):
+        data = payload if isinstance(payload, dict) else {}
+        merchant_id = str(
+            request.args.get('merchant_id')
+            or request.args.get('merchantId')
+            or data.get('merchant_id')
+            or data.get('merchantId')
+            or ''
+        ).strip()
+        if not merchant_id:
+            return None, (jsonify({'success': False, 'error': 'Merchant ID required'}), 400)
+
+        filters = {
+            'merchant_id': merchant_id,
+            'page': _parse_optional_int(
+                request.args.get('page')
+                if request.args.get('page') is not None
+                else data.get('page'),
+                minimum=1,
+                maximum=10000,
+                default=1
+            ),
+            'page_size': _parse_optional_int(
+                request.args.get('page_size')
+                if request.args.get('page_size') is not None
+                else request.args.get('pageSize')
+                if request.args.get('pageSize') is not None
+                else data.get('page_size')
+                if data.get('page_size') is not None
+                else data.get('pageSize'),
+                minimum=1,
+                maximum=100,
+                default=10
+            ),
+            'add_count': _is_truthy(
+                request.args.get('add_count')
+                if request.args.get('add_count') is not None
+                else request.args.get('addCount')
+                if request.args.get('addCount') is not None
+                else data.get('add_count')
+                if data.get('add_count') is not None
+                else data.get('addCount')
+                if data.get('addCount') is not None
+                else True
+            ),
+        }
+        return filters, None
+
     def _normalize_day_of_week(day_raw):
         if isinstance(day_raw, int):
             if 0 <= day_raw <= 6:
@@ -987,363 +1099,6 @@ def register(app, deps):
             log_exception("request_exception", e)
             return internal_error_response()
 
-    @bp.route('/api/ifood/homologation/financial/sales')
-    @login_required
-    def api_ifood_homologation_financial_sales():
-        """Live proxy for Financial API Sales used in homologation demos."""
-        try:
-            api = get_resilient_api_client()
-            if not api:
-                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-            merchant_id = _request_text_arg('merchant_id', 'merchantId')
-            if not merchant_id:
-                return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
-
-            begin_sales_date = _request_text_arg('beginSalesDate', 'begin_sales_date', 'start_date', 'startDate')
-            end_sales_date = _request_text_arg('endSalesDate', 'end_sales_date', 'end_date', 'endDate')
-            page = _request_text_arg('page')
-            if not begin_sales_date or not end_sales_date:
-                return jsonify({
-                    'success': False,
-                    'error': 'beginSalesDate and endSalesDate are required for Financial Sales'
-                }), 400
-
-            payload = api.get_financial_sales(
-                merchant_id,
-                begin_sales_date,
-                end_sales_date,
-                page=page,
-            )
-            if payload is None:
-                return _ifood_error_response(
-                    api,
-                    action='listagem financeira de vendas (GET /financial/v3.0/merchants/{merchantId}/sales)',
-                    default_status=502
-                )
-
-            return jsonify({
-                'success': True,
-                'module': 'Financial',
-                'api': 'Sales',
-                'merchant_id': merchant_id,
-                'filters': {
-                    'beginSalesDate': begin_sales_date,
-                    'endSalesDate': end_sales_date,
-                    'page': page,
-                },
-                'count': _count_financial_items(payload, 'sales'),
-                'payload': payload,
-            })
-        except Exception as e:
-            print(f"Error listing iFood financial sales: {e}")
-            log_exception("request_exception", e)
-            return internal_error_response()
-
-    @bp.route('/api/ifood/homologation/financial/events')
-    @login_required
-    def api_ifood_homologation_financial_events():
-        """Live proxy for Financial API Financial Events used in homologation demos."""
-        try:
-            api = get_resilient_api_client()
-            if not api:
-                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-            merchant_id = _request_text_arg('merchant_id', 'merchantId')
-            if not merchant_id:
-                return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
-
-            begin_date = _request_text_arg('beginDate', 'begin_date', 'start_date', 'startDate')
-            end_date = _request_text_arg('endDate', 'end_date', 'endDate')
-            page = _request_text_arg('page')
-            size = _request_text_arg('size')
-            if not begin_date or not end_date:
-                return jsonify({
-                    'success': False,
-                    'error': 'beginDate and endDate are required for Financial Events'
-                }), 400
-
-            payload = api.get_financial_events(
-                merchant_id,
-                begin_date,
-                end_date,
-                page=page,
-                size=size,
-            )
-            if payload is None:
-                return _ifood_error_response(
-                    api,
-                    action='listagem de eventos financeiros (GET /financial/v3.0/merchants/{merchantId}/financial-events)',
-                    default_status=502
-                )
-
-            return jsonify({
-                'success': True,
-                'module': 'Financial',
-                'api': 'Financial Events',
-                'merchant_id': merchant_id,
-                'filters': {
-                    'beginDate': begin_date,
-                    'endDate': end_date,
-                    'page': page,
-                    'size': size,
-                },
-                'count': _count_financial_items(payload, 'financialEvents'),
-                'payload': payload,
-            })
-        except Exception as e:
-            print(f"Error listing iFood financial events: {e}")
-            log_exception("request_exception", e)
-            return internal_error_response()
-
-    @bp.route('/api/ifood/homologation/financial/reconciliation')
-    @login_required
-    def api_ifood_homologation_financial_reconciliation():
-        """Live proxy for Financial API Reconciliation used in homologation demos."""
-        try:
-            api = get_resilient_api_client()
-            if not api:
-                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-            merchant_id = _request_text_arg('merchant_id', 'merchantId')
-            competence = _request_text_arg('competence')
-            if not merchant_id:
-                return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
-            if not competence:
-                return jsonify({'success': False, 'error': 'Competence (YYYY-MM) required'}), 400
-
-            payload = api.get_financial_reconciliation(merchant_id, competence)
-            if payload is None:
-                return _ifood_error_response(
-                    api,
-                    action='consulta de reconciliacao financeira (GET /financial/v3.0/merchants/{merchantId}/reconciliation)',
-                    default_status=502
-                )
-
-            return jsonify({
-                'success': True,
-                'module': 'Financial',
-                'api': 'Reconciliation',
-                'merchant_id': merchant_id,
-                'filters': {'competence': competence},
-                'payload': payload,
-            })
-        except Exception as e:
-            print(f"Error getting iFood financial reconciliation: {e}")
-            log_exception("request_exception", e)
-            return internal_error_response()
-
-    @bp.route('/api/ifood/homologation/financial/reconciliation/on-demand', methods=['POST'])
-    @login_required
-    def api_ifood_homologation_financial_reconciliation_on_demand():
-        """Live proxy for Financial API Reconciliation On Demand creation."""
-        try:
-            api = get_resilient_api_client()
-            if not api:
-                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-            data = get_json_payload()
-            if not isinstance(data, dict):
-                data = {}
-
-            merchant_id = _payload_text_value(data, 'merchant_id', 'merchantId') or _request_text_arg('merchant_id', 'merchantId')
-            competence = _payload_text_value(data, 'competence')
-            if not merchant_id:
-                return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
-            if not competence:
-                return jsonify({'success': False, 'error': 'Competence (YYYY-MM) required'}), 400
-
-            payload = api.request_financial_reconciliation_on_demand(merchant_id, competence)
-            if payload is None:
-                return _ifood_error_response(
-                    api,
-                    action='solicitacao de reconciliacao on demand (POST /financial/v3.0/merchants/{merchantId}/reconciliation/on-demand)',
-                    default_status=502
-                )
-
-            return jsonify({
-                'success': True,
-                'module': 'Financial',
-                'api': 'Reconciliation On Demand',
-                'merchant_id': merchant_id,
-                'filters': {'competence': competence},
-                'payload': payload,
-            })
-        except Exception as e:
-            print(f"Error requesting iFood reconciliation on demand: {e}")
-            log_exception("request_exception", e)
-            return internal_error_response()
-
-    @bp.route('/api/ifood/homologation/financial/reconciliation/on-demand/<request_id>')
-    @login_required
-    def api_ifood_homologation_financial_reconciliation_on_demand_status(request_id):
-        """Live proxy for Financial API Reconciliation On Demand status."""
-        try:
-            api = get_resilient_api_client()
-            if not api:
-                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-            merchant_id = _request_text_arg('merchant_id', 'merchantId')
-            if not merchant_id:
-                return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
-
-            payload = api.get_financial_reconciliation_on_demand_status(merchant_id, request_id)
-            if payload is None:
-                return _ifood_error_response(
-                    api,
-                    action='status da reconciliacao on demand (GET /financial/v3.0/merchants/{merchantId}/reconciliation/on-demand/{requestId})',
-                    default_status=502
-                )
-
-            return jsonify({
-                'success': True,
-                'module': 'Financial',
-                'api': 'Reconciliation On Demand Status',
-                'merchant_id': merchant_id,
-                'request_id': request_id,
-                'payload': payload,
-            })
-        except Exception as e:
-            print(f"Error getting iFood reconciliation on demand status: {e}")
-            log_exception("request_exception", e)
-            return internal_error_response()
-
-    @bp.route('/api/ifood/homologation/financial/settlements')
-    @login_required
-    def api_ifood_homologation_financial_settlements():
-        """Live proxy for Financial API Settlements used in homologation demos."""
-        try:
-            api = get_resilient_api_client()
-            if not api:
-                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-            merchant_id = _request_text_arg('merchant_id', 'merchantId')
-            if not merchant_id:
-                return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
-
-            begin_payment_date = _request_text_arg('beginPaymentDate', 'begin_payment_date')
-            end_payment_date = _request_text_arg('endPaymentDate', 'end_payment_date')
-            begin_calculation_date = _request_text_arg('beginCalculationDate', 'begin_calculation_date')
-            end_calculation_date = _request_text_arg('endCalculationDate', 'end_calculation_date')
-            has_payment_pair = bool(begin_payment_date and end_payment_date)
-            has_calculation_pair = bool(begin_calculation_date and end_calculation_date)
-            if (begin_payment_date and not end_payment_date) or (end_payment_date and not begin_payment_date):
-                return jsonify({
-                    'success': False,
-                    'error': 'Inform both beginPaymentDate and endPaymentDate for Settlements'
-                }), 400
-            if (begin_calculation_date and not end_calculation_date) or (end_calculation_date and not begin_calculation_date):
-                return jsonify({
-                    'success': False,
-                    'error': 'Inform both beginCalculationDate and endCalculationDate for Settlements'
-                }), 400
-            if not has_payment_pair and not has_calculation_pair:
-                return jsonify({
-                    'success': False,
-                    'error': 'Provide begin/end payment dates or begin/end calculation dates for Settlements'
-                }), 400
-
-            payload = api.get_financial_settlements(
-                merchant_id,
-                begin_payment_date=begin_payment_date,
-                end_payment_date=end_payment_date,
-                begin_calculation_date=begin_calculation_date,
-                end_calculation_date=end_calculation_date,
-            )
-            if payload is None:
-                return _ifood_error_response(
-                    api,
-                    action='consulta de liquidacoes financeiras (GET /financial/v3.0/merchants/{merchantId}/settlements)',
-                    default_status=502
-                )
-
-            return jsonify({
-                'success': True,
-                'module': 'Financial',
-                'api': 'Settlements',
-                'merchant_id': merchant_id,
-                'filters': {
-                    'beginPaymentDate': begin_payment_date,
-                    'endPaymentDate': end_payment_date,
-                    'beginCalculationDate': begin_calculation_date,
-                    'endCalculationDate': end_calculation_date,
-                },
-                'count': _count_financial_items(payload, 'settlements'),
-                'payload': payload,
-            })
-        except Exception as e:
-            print(f"Error listing iFood financial settlements: {e}")
-            log_exception("request_exception", e)
-            return internal_error_response()
-
-    @bp.route('/api/ifood/homologation/financial/anticipations')
-    @login_required
-    def api_ifood_homologation_financial_anticipations():
-        """Live proxy for Financial API Anticipations used in homologation demos."""
-        try:
-            api = get_resilient_api_client()
-            if not api:
-                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-            merchant_id = _request_text_arg('merchant_id', 'merchantId')
-            if not merchant_id:
-                return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
-
-            begin_calculation_date = _request_text_arg('beginCalculationDate', 'begin_calculation_date')
-            end_calculation_date = _request_text_arg('endCalculationDate', 'end_calculation_date')
-            begin_anticipated_payment_date = _request_text_arg('beginAnticipatedPaymentDate', 'begin_anticipated_payment_date')
-            end_anticipated_payment_date = _request_text_arg('endAnticipatedPaymentDate', 'end_anticipated_payment_date')
-            has_calculation_pair = bool(begin_calculation_date and end_calculation_date)
-            has_payment_pair = bool(begin_anticipated_payment_date and end_anticipated_payment_date)
-            if (begin_calculation_date and not end_calculation_date) or (end_calculation_date and not begin_calculation_date):
-                return jsonify({
-                    'success': False,
-                    'error': 'Inform both beginCalculationDate and endCalculationDate for Anticipations'
-                }), 400
-            if (begin_anticipated_payment_date and not end_anticipated_payment_date) or (end_anticipated_payment_date and not begin_anticipated_payment_date):
-                return jsonify({
-                    'success': False,
-                    'error': 'Inform both beginAnticipatedPaymentDate and endAnticipatedPaymentDate for Anticipations'
-                }), 400
-            if not has_calculation_pair and not has_payment_pair:
-                return jsonify({
-                    'success': False,
-                    'error': 'Provide begin/end calculation dates or begin/end anticipated payment dates for Anticipations'
-                }), 400
-
-            payload = api.get_financial_anticipations(
-                merchant_id,
-                begin_calculation_date=begin_calculation_date,
-                end_calculation_date=end_calculation_date,
-                begin_anticipated_payment_date=begin_anticipated_payment_date,
-                end_anticipated_payment_date=end_anticipated_payment_date,
-            )
-            if payload is None:
-                return _ifood_error_response(
-                    api,
-                    action='consulta de antecipacoes financeiras (GET /financial/v3.0/merchants/{merchantId}/anticipations)',
-                    default_status=502
-                )
-
-            return jsonify({
-                'success': True,
-                'module': 'Financial',
-                'api': 'Anticipations',
-                'merchant_id': merchant_id,
-                'filters': {
-                    'beginCalculationDate': begin_calculation_date,
-                    'endCalculationDate': end_calculation_date,
-                    'beginAnticipatedPaymentDate': begin_anticipated_payment_date,
-                    'endAnticipatedPaymentDate': end_anticipated_payment_date,
-                },
-                'count': _count_financial_items(payload, 'settlements'),
-                'payload': payload,
-            })
-        except Exception as e:
-            print(f"Error listing iFood financial anticipations: {e}")
-            log_exception("request_exception", e)
-            return internal_error_response()
-
     @bp.route('/api/ifood/homologation/events/polling', methods=['POST'])
     @login_required
     def api_ifood_homologation_events_polling():
@@ -1394,6 +1149,219 @@ def register(app, deps):
             })
         except Exception as e:
             print(f"Error polling iFood events: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/sales')
+    @login_required
+    def api_ifood_homologation_financial_sales():
+        """Live proxy for iFood Financial Sales module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_financial_sales(
+                filters['merchant_id'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial sales', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Sales',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood financial sales: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/events')
+    @login_required
+    def api_ifood_homologation_financial_events():
+        """Live proxy for iFood Financial Events module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_financial_events(
+                filters['merchant_id'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial events', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Events',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood financial events: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/reconciliation')
+    @login_required
+    def api_ifood_homologation_financial_reconciliation():
+        """Live proxy for iFood Reconciliation module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+            if not filters.get('competence'):
+                return jsonify({'success': False, 'error': 'Competence required (YYYY-MM)'}), 400
+
+            result = api.get_financial_reconciliation(
+                filters['merchant_id'],
+                competence=filters['competence'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial reconciliation', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Reconciliation',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood reconciliation: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/reconciliation-on-demand', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_financial_reconciliation_on_demand():
+        """Live proxy for iFood Reconciliation On Demand module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            filters, error_response = _get_homologation_financial_filters(data if isinstance(data, dict) else {})
+            if error_response:
+                return error_response
+            if not filters.get('competence'):
+                return jsonify({'success': False, 'error': 'Competence required (YYYY-MM)'}), 400
+
+            result = api.request_financial_reconciliation_on_demand(
+                filters['merchant_id'],
+                competence=filters['competence'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial reconciliation on demand', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Reconciliation On Demand',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error requesting iFood reconciliation on demand: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/settlement')
+    @login_required
+    def api_ifood_homologation_financial_settlement():
+        """Live proxy for iFood Settlement module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_financial_settlement(
+                filters['merchant_id'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial settlement', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Settlement',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood settlement: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/anticipation')
+    @login_required
+    def api_ifood_homologation_financial_anticipation():
+        """Live proxy for iFood Anticipation module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_financial_anticipation(
+                filters['merchant_id'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial anticipation', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Anticipation',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood anticipation: {e}")
             log_exception("request_exception", e)
             return internal_error_response()
 
