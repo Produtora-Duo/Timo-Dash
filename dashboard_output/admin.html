@@ -960,12 +960,95 @@
         let memberManagementOrgName = '';
         let assignTargetOrgId = null;
         function orgIfoodConfigUrl() { return `/api/org/ifood-config?_=${Date.now()}`; }
-        async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadSubscription(), loadOnboarding(), loadDataQualitySummary()]); }
+
+        function renderTableState(message, colspan = 5) {
+            return `<tr><td colspan="${colspan}" class="empty-state">${escapeHtml(message)}</td></tr>`;
+        }
+
+        function renderCardState(message) {
+            return `<div class="empty-state" style="padding:1rem">${escapeHtml(message)}</div>`;
+        }
+
+        function applyTheme(theme) {
+            const nextTheme = theme === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', nextTheme);
+            document.documentElement.style.colorScheme = nextTheme;
+            localStorage.setItem('theme', nextTheme);
+            const sunIcon = document.getElementById('sunIcon');
+            const moonIcon = document.getElementById('moonIcon');
+            if (sunIcon) sunIcon.style.display = nextTheme === 'dark' ? 'block' : 'none';
+            if (moonIcon) moonIcon.style.display = nextTheme === 'dark' ? 'none' : 'block';
+        }
+
+        function setSidebarOpen(isOpen) {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            if (!sidebar || !overlay) return;
+            sidebar.classList.toggle('open', !!isOpen);
+            overlay.classList.toggle('show', !!isOpen);
+            document.body.style.overflow = isOpen ? 'hidden' : '';
+        }
+
+        function setNoOrganizationState(message = 'Selecione uma organizacao para carregar os dados do painel.') {
+            const userCount = document.getElementById('userCount');
+            const merchantCount = document.getElementById('merchantCount');
+            const apiStatus = document.getElementById('apiStatus');
+            const usersTable = document.getElementById('usersTable');
+            const merchantsTable = document.getElementById('merchantsTable');
+            const onboardingProgress = document.getElementById('onboardingProgress');
+            const onboardingSteps = document.getElementById('onboardingSteps');
+            const onboardingSection = document.getElementById('onboardingSection');
+            const dataQualityScore = document.getElementById('dataQualityScore');
+            const dataQualitySummary = document.getElementById('dataQualitySummary');
+            const subscriptionStatusBadge = document.getElementById('subscriptionStatusBadge');
+            const currentPlanName = document.getElementById('currentPlanName');
+            const currentBillingCycle = document.getElementById('currentBillingCycle');
+            const subscriptionUsageText = document.getElementById('subscriptionUsageText');
+            const plansGrid = document.getElementById('plansGrid');
+            const clientId = document.getElementById('clientId');
+            const connectionStatus = document.getElementById('connectionStatus');
+            const merchantInput = document.getElementById('homologMerchantId');
+
+            if (userCount) userCount.textContent = '-';
+            if (merchantCount) merchantCount.textContent = '-';
+            if (apiStatus) apiStatus.textContent = 'Sem org';
+            if (usersTable) usersTable.innerHTML = renderTableState(message);
+            if (merchantsTable) merchantsTable.innerHTML = renderTableState(message);
+            if (onboardingProgress) onboardingProgress.textContent = 'Sem org';
+            if (onboardingSteps) onboardingSteps.innerHTML = renderCardState(message);
+            if (onboardingSection) onboardingSection.style.display = '';
+            if (dataQualityScore) {
+                dataQualityScore.textContent = 'Sem org';
+                dataQualityScore.style.background = 'var(--bg-secondary)';
+                dataQualityScore.style.color = 'var(--text-secondary)';
+            }
+            if (dataQualitySummary) dataQualitySummary.innerHTML = renderCardState(message);
+            if (subscriptionStatusBadge) {
+                subscriptionStatusBadge.textContent = 'Sem org';
+                subscriptionStatusBadge.className = 'badge status-other';
+            }
+            if (currentPlanName) currentPlanName.textContent = '-';
+            if (currentBillingCycle) currentBillingCycle.textContent = '-';
+            if (subscriptionUsageText) subscriptionUsageText.innerHTML = `<span>${escapeHtml(message)}</span>`;
+            if (plansGrid) plansGrid.innerHTML = `<div class="plan-card"><span class="plan-subtitle">${escapeHtml(message)}</span></div>`;
+            if (clientId) clientId.textContent = 'Selecione uma organizacao';
+            if (connectionStatus) {
+                connectionStatus.className = 'badge badge-disconnected';
+                connectionStatus.textContent = 'Sem organizacao';
+            }
+            if (merchantInput) merchantInput.value = '';
+        }
+
+        async function loadData() {
+            await Promise.all([loadUsers(), loadIfoodConfig(), loadSubscription(), loadOnboarding(), loadDataQualitySummary()]);
+        }
 
         async function refreshOrgContext() {
             await loadUserInfo();
             if (hasOrgAssignment) {
                 await loadData();
+            } else {
+                setNoOrganizationState();
             }
             await loadOrganizations(false);
         }
@@ -995,6 +1078,28 @@
                         container.innerHTML = '<div class="empty-state" style="padding:1rem;border:1px dashed var(--border-light);border-radius:var(--radius-lg)">Erro ao carregar organizacoes</div>';
                     }
                 }
+            }
+        }
+
+        async function tryAutoSelectSingleOrganization() {
+            if (hasOrgAssignment || organizationsCache.length !== 1) return false;
+            const onlyOrgId = Number(organizationsCache[0]?.id || 0);
+            if (!onlyOrgId) return false;
+            try {
+                const response = await fetch('/api/orgs/switch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ org_id: onlyOrgId })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    return false;
+                }
+                currentOrgId = onlyOrgId;
+                await refreshOrgContext();
+                return true;
+            } catch (error) {
+                return false;
             }
         }
 
@@ -1127,7 +1232,7 @@
             openModal('orgSwitcherModal');
         }
 
-        async function switchOrganization(orgId) {
+        async function switchOrganization(orgId, options = {}) {
             try {
                 const response = await fetch('/api/orgs/switch', {
                     method: 'POST',
@@ -1142,9 +1247,15 @@
                 currentOrgId = Number(orgId);
                 closeModal('orgSwitcherModal');
                 await refreshOrgContext();
-                showToast('Organizacao atualizada', 'success');
+                if (!options.silent) {
+                    showToast('Organizacao atualizada', 'success');
+                }
+                return true;
             } catch (error) {
-                showToast('Erro de conexao ao trocar organizacao', 'error');
+                if (!options.silent) {
+                    showToast('Erro de conexao ao trocar organizacao', 'error');
+                }
+                return false;
             }
         }
 
@@ -1201,7 +1312,15 @@
             try {
                 const response = await fetch('/api/users');
                 const data = await response.json();
-                if (!data.success) {
+                if (!response.ok || !data.success) {
+                    const tbody = document.getElementById('usersTable');
+                    if (tbody) {
+                        tbody.innerHTML = renderTableState(
+                            response.status === 403
+                                ? 'Selecione uma organizacao para carregar os usuarios.'
+                                : (data.error || 'Erro ao carregar usuarios')
+                        );
+                    }
                     return;
                 }
 
@@ -1297,8 +1416,19 @@
             try {
                 const response = await fetch('/api/org/subscription');
                 const data = await response.json();
-                if (!data.success) {
-                    showToast(data.error || 'Nao foi possivel carregar assinatura', 'error');
+                if (!response.ok || !data.success) {
+                    const message = response.status === 403
+                        ? 'Selecione uma organizacao para carregar a assinatura.'
+                        : (data.error || 'Nao foi possivel carregar assinatura');
+                    const statusBadge = document.getElementById('subscriptionStatusBadge');
+                    const usageText = document.getElementById('subscriptionUsageText');
+                    const plansGrid = document.getElementById('plansGrid');
+                    if (statusBadge) {
+                        statusBadge.textContent = response.status === 403 ? 'Sem org' : 'Erro';
+                        statusBadge.className = 'badge status-other';
+                    }
+                    if (usageText) usageText.innerHTML = `<span>${escapeHtml(message)}</span>`;
+                    if (plansGrid) plansGrid.innerHTML = `<div class="plan-card"><span class="plan-subtitle">${escapeHtml(message)}</span></div>`;
                     return;
                 }
 
@@ -1351,7 +1481,15 @@
 
                 renderPlanCards(plans, subscription, usage);
             } catch (error) {
-                showToast('Falha ao carregar assinatura', 'error');
+                const statusBadge = document.getElementById('subscriptionStatusBadge');
+                const usageText = document.getElementById('subscriptionUsageText');
+                const plansGrid = document.getElementById('plansGrid');
+                if (statusBadge) {
+                    statusBadge.textContent = 'Erro';
+                    statusBadge.className = 'badge status-other';
+                }
+                if (usageText) usageText.innerHTML = '<span>Erro ao carregar assinatura.</span>';
+                if (plansGrid) plansGrid.innerHTML = '<div class="plan-card"><span class="plan-subtitle">Erro ao carregar planos.</span></div>';
             }
         }
 
@@ -1359,15 +1497,25 @@
             try {
                 const response = await fetch('/api/onboarding');
                 const data = await response.json();
+                const progress = document.getElementById('onboardingProgress');
+                const stepsEl = document.getElementById('onboardingSteps');
+                const section = document.getElementById('onboardingSection');
                 if (!response.ok || !data.success) {
+                    if (progress) progress.textContent = response.status === 403 ? 'Sem org' : 'Erro';
+                    if (stepsEl) {
+                        stepsEl.innerHTML = renderCardState(
+                            response.status === 403
+                                ? 'Selecione uma organizacao para carregar o onboarding.'
+                                : (data.error || 'Nao foi possivel carregar o onboarding.')
+                        );
+                    }
+                    if (section) section.style.display = '';
                     return;
                 }
                 const onboarding = data.onboarding || {};
-                const progress = document.getElementById('onboardingProgress');
                 if (progress) {
                     progress.textContent = `${onboarding.completed_count || 0}/${onboarding.total_steps || 0}`;
                 }
-                const stepsEl = document.getElementById('onboardingSteps');
                 if (!stepsEl) return;
                 const steps = Array.isArray(onboarding.steps) ? onboarding.steps : [];
                 if (!steps.length) {
@@ -1392,12 +1540,17 @@
                     `;
                 }).join('');
 
-                const section = document.getElementById('onboardingSection');
                 if (section) {
                     section.style.display = onboarding.dismissed || onboarding.is_complete ? 'none' : '';
                 }
             } catch (error) {
                 console.error('Error loading onboarding:', error);
+                const progress = document.getElementById('onboardingProgress');
+                const stepsEl = document.getElementById('onboardingSteps');
+                const section = document.getElementById('onboardingSection');
+                if (progress) progress.textContent = 'Erro';
+                if (stepsEl) stepsEl.innerHTML = renderCardState('Erro ao carregar onboarding.');
+                if (section) section.style.display = '';
             }
         }
 
@@ -1437,15 +1590,24 @@
             try {
                 const response = await fetch('/api/data-quality');
                 const data = await response.json();
+                const badge = document.getElementById('dataQualityScore');
+                const container = document.getElementById('dataQualitySummary');
                 if (!response.ok || !data.success) {
+                    const message = response.status === 403
+                        ? 'Selecione uma organizacao para carregar a qualidade dos dados.'
+                        : (data.error || 'Nao foi possivel carregar a qualidade dos dados.');
+                    if (badge) {
+                        badge.textContent = response.status === 403 ? 'Sem org' : 'Erro';
+                        badge.style.background = 'var(--bg-secondary)';
+                        badge.style.color = 'var(--text-secondary)';
+                    }
+                    if (container) container.innerHTML = renderCardState(message);
                     return;
                 }
                 const summary = data.quality?.summary || {};
                 const score = Number(summary.average_score || 100);
                 const poor = Number(summary.poor_count || 0);
                 const warning = Number(summary.warning_count || 0);
-                const badge = document.getElementById('dataQualityScore');
-                const container = document.getElementById('dataQualitySummary');
                 if (badge) {
                     badge.textContent = `Score ${Math.round(score)}`;
                     badge.style.background = score < 55 ? 'var(--error-50)' : (score < 80 ? '#fffbeb' : 'var(--success-50)');
@@ -1464,6 +1626,14 @@
                 }
             } catch (error) {
                 console.error('Error loading data quality:', error);
+                const badge = document.getElementById('dataQualityScore');
+                const container = document.getElementById('dataQualitySummary');
+                if (badge) {
+                    badge.textContent = 'Erro';
+                    badge.style.background = 'var(--bg-secondary)';
+                    badge.style.color = 'var(--text-secondary)';
+                }
+                if (container) container.innerHTML = renderCardState('Erro ao carregar a qualidade dos dados.');
             }
         }
 
@@ -1770,7 +1940,21 @@
                 const response = await fetch(orgIfoodConfigUrl(), { cache: 'no-store' });
                 const data = await response.json();
                 if (!(response.ok && data.success && data.config)) {
-                    document.getElementById('apiStatus').textContent = 'Erro';
+                    const apiStatus = document.getElementById('apiStatus');
+                    const tbody = document.getElementById('merchantsTable');
+                    const connectionStatus = document.getElementById('connectionStatus');
+                    if (apiStatus) apiStatus.textContent = response.status === 403 ? 'Sem org' : 'Erro';
+                    if (connectionStatus) {
+                        connectionStatus.className = 'badge badge-disconnected';
+                        connectionStatus.textContent = response.status === 403 ? 'Sem organizacao' : 'Erro';
+                    }
+                    if (tbody) {
+                        tbody.innerHTML = renderTableState(
+                            response.status === 403
+                                ? 'Selecione uma organizacao para carregar os merchants.'
+                                : (data.error || 'Erro ao carregar os merchants')
+                        );
+                    }
                     return;
                 }
                 const cfg = data.config || {};
@@ -1827,7 +2011,15 @@
                 `).join('');
             } catch (error) {
                 console.error('Error loading org config:', error);
-                document.getElementById('apiStatus').textContent = 'Erro';
+                const apiStatus = document.getElementById('apiStatus');
+                const tbody = document.getElementById('merchantsTable');
+                const connectionStatus = document.getElementById('connectionStatus');
+                if (apiStatus) apiStatus.textContent = 'Erro';
+                if (connectionStatus) {
+                    connectionStatus.className = 'badge badge-disconnected';
+                    connectionStatus.textContent = 'Erro';
+                }
+                if (tbody) tbody.innerHTML = renderTableState('Erro ao carregar os merchants.');
             }
         }
 
@@ -2691,14 +2883,18 @@
 
         function toggleTheme() {
             const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('theme', theme);
-            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
-            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+            applyTheme(theme);
         }
 
-        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebarOverlay').classList.toggle('show'); }
-        function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('show'); }
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            if (!sidebar) return;
+            setSidebarOpen(!sidebar.classList.contains('open'));
+        }
+
+        function closeSidebar() {
+            setSidebarOpen(false);
+        }
 
         function logout() {
             if (confirm('Deseja realmente sair?')) {
@@ -2743,19 +2939,23 @@
         }
 
         (async function init() {
-            const theme = localStorage.getItem('theme') || 'dark';
-            document.documentElement.setAttribute('data-theme', theme);
-            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
-            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+            applyTheme(localStorage.getItem('theme') || 'dark');
             const orgSwitcher = document.getElementById('orgSwitcher');
             if (orgSwitcher) orgSwitcher.addEventListener('click', openOrgSwitcherModal);
             await loadUserInfo();
-            if (hasOrgAssignment) {
-                await loadData();
-            } else {
-                await openOrgSwitcherModal();
-            }
             await loadOrganizations(false);
+            let autoSelected = false;
+            if (!hasOrgAssignment) {
+                autoSelected = await tryAutoSelectSingleOrganization();
+                if (!autoSelected) {
+                    setNoOrganizationState();
+                    await openOrgSwitcherModal();
+                    return;
+                }
+            }
+            if (hasOrgAssignment && !autoSelected) {
+                await loadData();
+            }
         })();
 
         document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal('addMerchantModal'); closeModal('addUserModal'); closeModal('assignUserModal'); closeModal('orgMembersModal'); closeModal('orgSwitcherModal'); closeModal('createOrgModal'); closeSidebar(); } });
