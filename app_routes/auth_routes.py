@@ -30,9 +30,19 @@ def register(app, deps):
             data = get_json_payload()
             if not data:
                 return jsonify({'success': False, 'error': 'Invalid JSON payload'}), 400
-            email = data.get('email', '').strip()
-            password = data.get('password', '')
-        
+
+            email = data.get('email')
+            password = data.get('password')
+
+            if not isinstance(email, str) or not isinstance(password, str):
+                return jsonify({
+                    'success': False,
+                    'error': 'Email and password required'
+                }), 400
+
+            email = email.strip()
+            password = password.strip()
+
             if not email or not password:
                 return jsonify({
                     'success': False,
