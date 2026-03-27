@@ -3755,6 +3755,26 @@ def _process_ifood_events_for_merchant(org_id, org_data: dict, api_client, merch
             except Exception:
                 result['errors'] += 1
 
+    # Detect and broadcast negotiation platform events
+    _NEGOTIATION_EVENT_PREFIXES = (
+        'CONSUMER_CANCELLATION', 'CANCELLATION_REQUEST', 'DISPUTE',
+        'NEGOTIATION', 'ORDER_CANCELLATION_REQUEST',
+    )
+    for event in accepted_events:
+        event_type = _extract_event_type(event).upper()
+        if any(event_type.startswith(prefix) for prefix in _NEGOTIATION_EVENT_PREFIXES):
+            order_id = _extract_order_id_from_poll_event(api_client, event)
+            try:
+                sse_manager.broadcast('negotiation_event', {
+                    'merchant_id': normalized_merchant_id,
+                    'order_id': order_id or '',
+                    'event_type': event_type,
+                    'event': event,
+                    'timestamp': _iso_utc_now(),
+                })
+            except Exception:
+                pass
+
     try:
         _refresh_restaurant_closure(org_data, api_client, normalized_merchant_id)
     except Exception:
@@ -4562,6 +4582,7 @@ def _detect_and_broadcast_new_orders(merchant_id: str, restaurant_name: str, ord
         new_ids = current_ids - prev_ids
         for order in orders:
             if order.get('id') in new_ids:
+                payment = order.get('payments', [{}])[0] if order.get('payments') else order.get('payment', {})
                 sse_manager.broadcast('new_order', {
                     'restaurant_id': merchant_id,
                     'restaurant_name': restaurant_name,
@@ -4573,6 +4594,14 @@ def _detect_and_broadcast_new_orders(merchant_id: str, restaurant_name: str, ord
                     'is_new_customer': order.get('customer', {}).get('isNewCustomer', False),
                     'items_count': len(order.get('items', [])),
                     'order_type': order.get('orderType', 'DELIVERY'),
+                    'order_timing': order.get('orderTiming', 'IMMEDIATE'),
+                    'scheduled_to': (order.get('schedule') or {}).get('deliveryDateTimeStart') or order.get('scheduledTo', ''),
+                    'pickup_code': order.get('pickupCode') or (order.get('delivery') or {}).get('pickupCode', ''),
+                    'payment_method': payment.get('name') or payment.get('method', ''),
+                    'payment_brand': payment.get('brand') or payment.get('cardBrand') or (payment.get('card') or {}).get('brand', ''),
+                    'change_for': payment.get('changeFor') or payment.get('change_for', 0),
+                    'customer_document': (order.get('customer') or {}).get('documentNumber') or (order.get('customer') or {}).get('cpf', ''),
+                    'delivery_observations': (order.get('delivery') or {}).get('observations', ''),
                     'timestamp': order.get('createdAt', datetime.now().isoformat())
                 })
     

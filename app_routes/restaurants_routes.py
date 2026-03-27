@@ -1734,4 +1734,177 @@ def register(app, deps):
             return internal_error_response()
 
 
+    # ========================================================================
+    # Homologation: Order Action Routes
+    # ========================================================================
+
+    def _homolog_order_action(order_id, action_name, api_method, extra_payload=None):
+        """Generic handler for homologation order action endpoints."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            method_fn = getattr(api, api_method, None)
+            if not method_fn:
+                return jsonify({'success': False, 'error': f'Method {api_method} not available'}), 501
+            if extra_payload is not None:
+                result = method_fn(order_id, **extra_payload)
+            else:
+                result = method_fn(order_id)
+            if result is None:
+                return _ifood_error_response(api, action=action_name, default_status=502)
+            return jsonify({'success': True, 'module': 'Order', 'action': action_name, 'result': result})
+        except Exception as e:
+            print(f"Error in homologation {action_name}: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/confirm', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_confirm(order_id):
+        return _homolog_order_action(order_id, 'confirm', 'confirm_order')
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/start-preparation', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_start_preparation(order_id):
+        return _homolog_order_action(order_id, 'startPreparation', 'start_order_preparation')
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/dispatch', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_dispatch(order_id):
+        return _homolog_order_action(order_id, 'dispatch', 'dispatch_order')
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/ready-to-pickup', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_ready_to_pickup(order_id):
+        return _homolog_order_action(order_id, 'readyToPickup', 'ready_order_for_pickup')
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/cancellation-reasons')
+    @login_required
+    def api_ifood_homologation_order_cancellation_reasons(order_id):
+        """GET cancellation reasons for an order - must be called BEFORE requesting cancellation."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            reasons = api.get_order_cancellation_reasons(order_id)
+            if reasons is None:
+                return _ifood_error_response(api, action='cancellationReasons', default_status=502)
+            return jsonify({
+                'success': True,
+                'module': 'Order',
+                'action': 'cancellationReasons',
+                'order_id': order_id,
+                'reasons': reasons if isinstance(reasons, list) else [],
+            })
+        except Exception as e:
+            print(f"Error getting cancellation reasons: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/request-cancellation', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_request_cancellation(order_id):
+        """POST request cancellation - requires cancellation_code from cancellationReasons."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            data = get_json_payload()
+            cancellation_code = str(data.get('cancellation_code') or data.get('cancellationCode') or '').strip()
+            reason = str(data.get('reason') or '').strip() or None
+            if not cancellation_code:
+                return jsonify({'success': False, 'error': 'cancellation_code is required (get from /cancellationReasons first)'}), 400
+            result = api.request_order_cancellation(order_id, cancellation_code, reason)
+            if result is None:
+                return _ifood_error_response(api, action='requestCancellation', default_status=502)
+            return jsonify({'success': True, 'module': 'Order', 'action': 'requestCancellation', 'result': result})
+        except Exception as e:
+            print(f"Error requesting cancellation: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/tracking', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_tracking(order_id):
+        return _homolog_order_action(order_id, 'tracking', 'get_order_tracking')
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/virtual-bag')
+    @login_required
+    def api_ifood_homologation_order_virtual_bag(order_id):
+        return _homolog_order_action(order_id, 'virtual-bag', 'get_order_virtual_bag')
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/validate-pickup-code', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_validate_pickup_code(order_id):
+        data = get_json_payload()
+        code = str(data.get('code') or '').strip()
+        if not code:
+            return jsonify({'success': False, 'error': 'code is required'}), 400
+        return _homolog_order_action(order_id, 'validatePickupCode', 'validate_order_pickup_code', {'code': code})
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/verify-delivery-code', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_verify_delivery_code(order_id):
+        data = get_json_payload()
+        code = str(data.get('code') or '').strip()
+        if not code:
+            return jsonify({'success': False, 'error': 'code is required'}), 400
+        return _homolog_order_action(order_id, 'verifyDeliveryCode', 'verify_order_delivery_code', {'code': code})
+
+    # ========================================================================
+    # Homologation: Dispute / Negotiation Platform Routes
+    # ========================================================================
+
+    @bp.route('/api/ifood/homologation/disputes/<dispute_id>/accept', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_dispute_accept(dispute_id):
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            result = api.accept_dispute(dispute_id)
+            if result is None:
+                return _ifood_error_response(api, action='accept dispute', default_status=502)
+            return jsonify({'success': True, 'module': 'Negotiation', 'action': 'acceptDispute', 'result': result})
+        except Exception as e:
+            print(f"Error accepting dispute: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/disputes/<dispute_id>/reject', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_dispute_reject(dispute_id):
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            data = get_json_payload()
+            reason = str(data.get('reason') or '').strip() or None
+            result = api.reject_dispute(dispute_id, reason)
+            if result is None:
+                return _ifood_error_response(api, action='reject dispute', default_status=502)
+            return jsonify({'success': True, 'module': 'Negotiation', 'action': 'rejectDispute', 'result': result})
+        except Exception as e:
+            print(f"Error rejecting dispute: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/disputes/<dispute_id>/alternatives/<alternative_id>', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_dispute_alternative(dispute_id, alternative_id):
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            data = get_json_payload()
+            result = api.submit_dispute_alternative(dispute_id, alternative_id, data if isinstance(data, dict) else None)
+            if result is None:
+                return _ifood_error_response(api, action='submit dispute alternative', default_status=502)
+            return jsonify({'success': True, 'module': 'Negotiation', 'action': 'submitDisputeAlternative', 'result': result})
+        except Exception as e:
+            print(f"Error submitting dispute alternative: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
     app.register_blueprint(bp)

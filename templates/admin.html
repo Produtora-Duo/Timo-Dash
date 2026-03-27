@@ -512,170 +512,55 @@
                     <div style="margin:-4px 0 16px;padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:rgba(249,112,21,0.08);font-size:12px;color:var(--text-secondary);">
                         O backend panel agora considera o escopo completo dos modulos iFood a serem solicitados para homologacao: Authentication, Merchant, Events, Order, Review e todo o modulo Financial.
                     </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Order ID</label>
-                            <input type="text" class="form-input" id="homologOrderId" placeholder="ID do pedido">
+                    <style>
+                        .homolog-module{border:1px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden;}
+                        .homolog-module-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-secondary);cursor:pointer;user-select:none;font-size:13px;font-weight:700;color:var(--text-primary);border-bottom:1px solid var(--border);transition:background .15s;}
+                        .homolog-module-header:hover{background:var(--bg-hover);}
+                        .homolog-module-header .hm-badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:12px;background:rgba(59,130,246,0.1);color:var(--blue);}
+                        .homolog-module-header .hm-chevron{transition:transform .2s;font-size:16px;color:var(--text-muted);}
+                        .homolog-module.collapsed .hm-chevron{transform:rotate(-90deg);}
+                        .homolog-module.collapsed .homolog-module-body{display:none;}
+                        .homolog-module-body{padding:12px 14px;}
+                        .homolog-module-body .form-row{margin-bottom:8px;}
+                        .homolog-module-body .endpoint-grid{margin-top:8px;margin-bottom:0;}
+                    </style>
+
+                    <!-- 1. Authentication -->
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>1. Authentication</span>
+                            <span class="hm-chevron">&#9660;</span>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">Order status (opcional)</label>
-                            <input type="text" class="form-input" id="homologOrderStatus" placeholder="CONCLUDED">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Order start date (YYYY-MM-DD)</label>
-                            <input type="text" class="form-input" id="homologOrdersStartDate" placeholder="2026-03-01">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Order end date (YYYY-MM-DD)</label>
-                            <input type="text" class="form-input" id="homologOrdersEndDate" placeholder="2026-03-08">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Financial Sales begin (YYYY-MM-DD)</label>
-                            <input type="text" class="form-input" id="homologFinancialSalesBeginDate" placeholder="2026-03-01">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Financial Sales end (YYYY-MM-DD)</label>
-                            <input type="text" class="form-input" id="homologFinancialSalesEndDate" placeholder="2026-03-08">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Sales page</label>
-                            <input type="text" class="form-input" id="homologFinancialSalesPage" placeholder="1">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Financial Events begin (YYYY-MM-DD)</label>
-                            <input type="text" class="form-input" id="homologFinancialEventsBeginDate" placeholder="2026-03-01">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Financial Events end (YYYY-MM-DD)</label>
-                            <input type="text" class="form-input" id="homologFinancialEventsEndDate" placeholder="2026-03-08">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Events page</label>
-                            <input type="text" class="form-input" id="homologFinancialEventsPage" placeholder="1">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Events size</label>
-                            <input type="text" class="form-input" id="homologFinancialEventsSize" placeholder="100">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Competence (YYYY-MM)</label>
-                            <input type="text" class="form-input" id="homologFinancialCompetence" placeholder="2026-03">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">On-demand request ID</label>
-                            <input type="text" class="form-input" id="homologFinancialRequestId" placeholder="request id retornado no POST">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Settlement payment begin</label>
-                            <input type="text" class="form-input" id="homologSettlementBeginPaymentDate" placeholder="2026-03-01">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Settlement payment end</label>
-                            <input type="text" class="form-input" id="homologSettlementEndPaymentDate" placeholder="2026-03-08">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Settlement calc begin</label>
-                            <input type="text" class="form-input" id="homologSettlementBeginCalculationDate" placeholder="2026-03-01">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Settlement calc end</label>
-                            <input type="text" class="form-input" id="homologSettlementEndCalculationDate" placeholder="2026-03-08">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Antecipation calc begin</label>
-                            <input type="text" class="form-input" id="homologAnticipationBeginCalculationDate" placeholder="2026-03-01">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Antecipation calc end</label>
-                            <input type="text" class="form-input" id="homologAnticipationEndCalculationDate" placeholder="2026-03-08">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Antecipation pay begin</label>
-                            <input type="text" class="form-input" id="homologAnticipationBeginPaymentDate" placeholder="2026-03-01">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Antecipation pay end</label>
-                            <input type="text" class="form-input" id="homologAnticipationEndPaymentDate" placeholder="2026-03-08">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Cancellation code</label>
-                            <input type="text" class="form-input" id="homologCancellationCode" placeholder="503">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Cancellation reason (optional)</label>
-                            <input type="text" class="form-input" id="homologCancellationReason" placeholder="Item unavailable">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Pickup code</label>
-                            <input type="text" class="form-input" id="homologPickupCode" placeholder="1234">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Delivery code</label>
-                            <input type="text" class="form-input" id="homologDeliveryCode" placeholder="1234">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Dispute ID</label>
-                            <input type="text" class="form-input" id="homologDisputeId" placeholder="ID da disputa">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Dispute alternative ID</label>
-                            <input type="text" class="form-input" id="homologDisputeAlternativeId" placeholder="ID da alternativa">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Dispute reject reason / alternative payload (JSON optional)</label>
-                        <textarea class="payload-input" id="homologDisputePayload">{
-  "reason": "Nao concordamos com a disputa"
-}</textarea>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Review ID</label>
-                            <input type="text" class="form-input" id="homologReviewId" placeholder="ID do review">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Review answer</label>
-                            <input type="text" class="form-input" id="homologReviewAnswer" placeholder="Obrigado pelo feedback">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Review page</label>
-                            <input type="text" class="form-input" id="homologReviewPage" value="1" placeholder="1">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Review page size</label>
-                            <input type="text" class="form-input" id="homologReviewPageSize" value="10" placeholder="10">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Events</label>
-                            <div style="display:flex;align-items:center;gap:8px;padding-top:10px;">
-                                <input type="checkbox" id="homologAckEvents">
-                                <label for="homologAckEvents" style="font-size:13px;color:var(--text-secondary);cursor:pointer;">Acknowledge events after polling</label>
+                        <div class="homolog-module-body">
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologAuthenticate()">POST /authentication/token</button>
                             </div>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Payload opening-hours (JSON para PUT /opening-hours)</label>
-                        <textarea class="payload-input" id="homologOpeningHoursPayload">[
+
+                    <!-- 2. Merchant -->
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>2. Merchant</span>
+                            <span class="hm-badge">8 endpoints</span>
+                            <span class="hm-chevron">&#9660;</span>
+                        </div>
+                        <div class="homolog-module-body">
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologListMerchants()">GET /merchants</button>
+                                <button class="btn btn-secondary" onclick="homologMerchantDetails()">GET /merchants/{merchantId}</button>
+                                <button class="btn btn-secondary" onclick="homologMerchantStatus()">GET /merchants/{merchantId}/status</button>
+                            </div>
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em;">Interrupcoes</div>
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologCreateInterruption()">POST interruptions</button>
+                                <button class="btn btn-secondary" onclick="homologListInterruptions()">GET interruptions</button>
+                                <button class="btn btn-secondary" onclick="homologDeleteInterruption()">DELETE interruptions/{id}</button>
+                            </div>
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em;">Horario de Funcionamento</div>
+                            <div class="form-group" style="margin-top:8px;">
+                                <label class="form-label">Payload opening-hours (JSON)</label>
+                                <textarea class="payload-input" id="homologOpeningHoursPayload" style="min-height:100px;">[
   {"dayOfWeek":0,"start":"09:00:00","end":"23:00:00"},
   {"dayOfWeek":1,"start":"09:00:00","end":"23:00:00"},
   {"dayOfWeek":2,"start":"09:00:00","end":"23:00:00"},
@@ -684,67 +569,285 @@
   {"dayOfWeek":5,"start":"09:00:00","end":"23:00:00"},
   {"dayOfWeek":6,"start":"09:00:00","end":"23:00:00"}
 ]</textarea>
+                            </div>
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologGetOpeningHours()">GET opening-hours</button>
+                                <button class="btn btn-secondary" onclick="homologPutOpeningHours()">PUT opening-hours</button>
+                            </div>
+                        </div>
                     </div>
-                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:10px 0 8px;">Authentication</div>
-                    <div class="endpoint-grid" style="margin-bottom:12px;">
-                        <button class="btn btn-secondary" onclick="homologAuthenticate()">POST /authentication/token</button>
+
+                    <!-- 3. Events / Polling -->
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>3. Events / Polling</span>
+                            <span class="hm-chevron">&#9660;</span>
+                        </div>
+                        <div class="homolog-module-body">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                                <input type="checkbox" id="homologAckEvents">
+                                <label for="homologAckEvents" style="font-size:13px;color:var(--text-secondary);cursor:pointer;">Acknowledge events after polling</label>
+                            </div>
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologPollEvents()">POST /events:polling</button>
+                                <button class="btn btn-secondary" onclick="homologRefreshStatus()">GET /refresh-status</button>
+                                <button class="btn btn-secondary" onclick="homologEvidencePack()">GET /evidence-pack</button>
+                            </div>
+                        </div>
                     </div>
-                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:10px 0 8px;">Merchant</div>
-                    <div class="endpoint-grid" style="margin-bottom:12px;">
-                        <button class="btn btn-secondary" onclick="homologListMerchants()">GET /merchants</button>
-                        <button class="btn btn-secondary" onclick="homologMerchantDetails()">GET /merchants/{merchantId}</button>
-                        <button class="btn btn-secondary" onclick="homologMerchantStatus()">GET /merchants/{merchantId}/status</button>
-                        <button class="btn btn-secondary" onclick="homologCreateInterruption()">POST /merchants/{merchantId}/interruptions</button>
-                        <button class="btn btn-secondary" onclick="homologListInterruptions()">GET /merchants/{merchantId}/interruptions</button>
-                        <button class="btn btn-secondary" onclick="homologDeleteInterruption()">DELETE /merchants/{merchantId}/interruptions/{interruptionId}</button>
-                        <button class="btn btn-secondary" onclick="homologGetOpeningHours()">GET /merchants/{merchantId}/opening-hours</button>
-                        <button class="btn btn-secondary" onclick="homologPutOpeningHours()">PUT /merchants/{merchantId}/opening-hours</button>
+
+                    <!-- 4. Orders -->
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>4. Orders (Pedidos)</span>
+                            <span class="hm-badge">12 endpoints</span>
+                            <span class="hm-chevron">&#9660;</span>
+                        </div>
+                        <div class="homolog-module-body">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Order ID</label>
+                                    <input type="text" class="form-input" id="homologOrderId" placeholder="ID do pedido">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Status (opcional)</label>
+                                    <input type="text" class="form-input" id="homologOrderStatus" placeholder="CONCLUDED">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Start date</label>
+                                    <input type="text" class="form-input" id="homologOrdersStartDate" placeholder="2026-03-01">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">End date</label>
+                                    <input type="text" class="form-input" id="homologOrdersEndDate" placeholder="2026-03-08">
+                                </div>
+                            </div>
+
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em;">Consulta</div>
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologListOrders()">GET /orders</button>
+                                <button class="btn btn-secondary" onclick="homologOrderDetails()">GET /orders/{orderId}</button>
+                                <button class="btn btn-secondary" onclick="homologOrderVirtualBag()">GET /orders/{orderId}/virtual-bag</button>
+                            </div>
+
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em;">Fluxo do Pedido (Delivery + Takeout)</div>
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologOrderConfirm()">POST confirm</button>
+                                <button class="btn btn-secondary" onclick="homologOrderStartPreparation()">POST startPreparation</button>
+                                <button class="btn btn-secondary" onclick="homologOrderDispatch()">POST dispatch</button>
+                                <button class="btn btn-secondary" onclick="homologOrderReadyToPickup()">POST readyToPickup</button>
+                            </div>
+
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em;">Cancelamento</div>
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Cancellation code</label>
+                                    <input type="text" class="form-input" id="homologCancellationCode" placeholder="Busque os motivos primeiro">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Reason (opcional)</label>
+                                    <input type="text" class="form-input" id="homologCancellationReason" placeholder="Item unavailable">
+                                </div>
+                            </div>
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologOrderCancellationReasons()">1. GET cancellationReasons</button>
+                                <button class="btn btn-secondary" onclick="homologOrderRequestCancellation()">2. POST requestCancellation</button>
+                            </div>
+
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em;">Rastreamento e Codigos</div>
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Pickup code</label>
+                                    <input type="text" class="form-input" id="homologPickupCode" placeholder="1234">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Delivery code</label>
+                                    <input type="text" class="form-input" id="homologDeliveryCode" placeholder="1234">
+                                </div>
+                            </div>
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologOrderTracking()">POST tracking</button>
+                                <button class="btn btn-secondary" onclick="homologOrderValidatePickupCode()">POST validatePickupCode</button>
+                                <button class="btn btn-secondary" onclick="homologOrderVerifyDeliveryCode()">POST verifyDeliveryCode</button>
+                            </div>
+                        </div>
                     </div>
-                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:10px 0 8px;">Events</div>
-                    <div class="endpoint-grid" style="margin-bottom:12px;">
-                        <button class="btn btn-secondary" onclick="homologPollEvents()">POST /events:polling</button>
-                        <button class="btn btn-secondary" onclick="homologRefreshStatus()">GET /refresh-status</button>
-                        <button class="btn btn-secondary" onclick="homologEvidencePack()">GET /evidence-pack</button>
+
+                    <!-- 5. Negotiation Platform (Disputes) -->
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>5. Plataforma de Negociacao</span>
+                            <span class="hm-badge">3 endpoints</span>
+                            <span class="hm-chevron">&#9660;</span>
+                        </div>
+                        <div class="homolog-module-body">
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Dispute ID</label>
+                                    <input type="text" class="form-input" id="homologDisputeId" placeholder="ID da disputa">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Alternative ID</label>
+                                    <input type="text" class="form-input" id="homologDisputeAlternativeId" placeholder="ID da alternativa">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Payload (JSON opcional)</label>
+                                <textarea class="payload-input" id="homologDisputePayload" style="min-height:80px;">{"reason": "Nao concordamos com a disputa"}</textarea>
+                            </div>
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologDisputeAccept()">POST accept</button>
+                                <button class="btn btn-secondary" onclick="homologDisputeReject()">POST reject</button>
+                                <button class="btn btn-secondary" onclick="homologDisputeAlternative()">POST alternatives/{id}</button>
+                            </div>
+                        </div>
                     </div>
-                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:10px 0 8px;">Order</div>
-                    <div class="endpoint-grid" style="margin-bottom:12px;">
-                        <button class="btn btn-secondary" onclick="homologListOrders()">GET /orders</button>
-                        <button class="btn btn-secondary" onclick="homologOrderDetails()">GET /orders/{orderId}</button>
-                        <button class="btn btn-secondary" onclick="homologOrderVirtualBag()">GET /orders/{orderId}/virtual-bag</button>
-                        <button class="btn btn-secondary" onclick="homologOrderConfirm()">POST /orders/{orderId}/confirm</button>
-                        <button class="btn btn-secondary" onclick="homologOrderStartPreparation()">POST /orders/{orderId}/startPreparation</button>
-                        <button class="btn btn-secondary" onclick="homologOrderDispatch()">POST /orders/{orderId}/dispatch</button>
-                        <button class="btn btn-secondary" onclick="homologOrderReadyToPickup()">POST /orders/{orderId}/readyToPickup</button>
-                        <button class="btn btn-secondary" onclick="homologOrderCancellationReasons()">GET /orders/{orderId}/cancellationReasons</button>
-                        <button class="btn btn-secondary" onclick="homologOrderRequestCancellation()">POST /orders/{orderId}/requestCancellation</button>
-                        <button class="btn btn-secondary" onclick="homologOrderTracking()">POST /orders/{orderId}/tracking</button>
-                        <button class="btn btn-secondary" onclick="homologOrderValidatePickupCode()">POST /orders/{orderId}/validatePickupCode</button>
-                        <button class="btn btn-secondary" onclick="homologOrderVerifyDeliveryCode()">POST /orders/{orderId}/verifyDeliveryCode</button>
-                        <button class="btn btn-secondary" onclick="homologDisputeAccept()">POST /disputes/{disputeId}/accept</button>
-                        <button class="btn btn-secondary" onclick="homologDisputeReject()">POST /disputes/{disputeId}/reject</button>
-                        <button class="btn btn-secondary" onclick="homologDisputeAlternative()">POST /disputes/{disputeId}/alternatives/{alternativeId}</button>
+
+                    <!-- 6. Reviews -->
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>6. Reviews</span>
+                            <span class="hm-badge">4 endpoints</span>
+                            <span class="hm-chevron">&#9660;</span>
+                        </div>
+                        <div class="homolog-module-body">
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Review ID</label>
+                                    <input type="text" class="form-input" id="homologReviewId" placeholder="ID do review">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Answer text</label>
+                                    <input type="text" class="form-input" id="homologReviewAnswer" placeholder="Obrigado pelo feedback">
+                                </div>
+                            </div>
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Page</label>
+                                    <input type="text" class="form-input" id="homologReviewPage" value="1" placeholder="1">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Page size</label>
+                                    <input type="text" class="form-input" id="homologReviewPageSize" value="10" placeholder="10">
+                                </div>
+                            </div>
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologListReviews()">GET /reviews</button>
+                                <button class="btn btn-secondary" onclick="homologReviewDetails()">GET /reviews/{id}</button>
+                                <button class="btn btn-secondary" onclick="homologReviewAnswer()">POST /reviews/{id}/answers</button>
+                                <button class="btn btn-secondary" onclick="homologReviewSummary()">GET /reviews/summary</button>
+                            </div>
+                        </div>
                     </div>
-                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:10px 0 8px;">Review</div>
-                    <div class="endpoint-grid">
-                        <button class="btn btn-secondary" onclick="homologListReviews()">GET /reviews</button>
-                        <button class="btn btn-secondary" onclick="homologReviewDetails()">GET /reviews/{reviewId}</button>
-                        <button class="btn btn-secondary" onclick="homologReviewAnswer()">POST /reviews/{reviewId}/answers</button>
-                        <button class="btn btn-secondary" onclick="homologReviewSummary()">GET /reviews/summary</button>
-                    </div>
-                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:16px 0 8px;">Financial</div>
-                    <div class="endpoint-grid">
-                        <button class="btn btn-secondary" onclick="homologFinancialSales()">GET /financial/sales</button>
-                        <button class="btn btn-secondary" onclick="homologFinancialEvents()">GET /financial/financial-events</button>
-                        <button class="btn btn-secondary" onclick="homologFinancialReconciliation()">GET /financial/reconciliation</button>
-                        <button class="btn btn-secondary" onclick="homologFinancialReconciliationOnDemand()">POST /financial/reconciliation/on-demand</button>
-                        <button class="btn btn-secondary" onclick="homologFinancialReconciliationStatus()">GET /financial/reconciliation/on-demand/{requestId}</button>
-                        <button class="btn btn-secondary" onclick="homologFinancialSettlements()">GET /financial/settlements</button>
-                        <button class="btn btn-secondary" onclick="homologFinancialAnticipations()">GET /financial/anticipations</button>
-                    </div>
-                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:16px 0 8px;">Financial Scope</div>
-                    <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);font-size:12px;color:var(--text-secondary);line-height:1.6;">
-                        Solicitar no app iFood e refletir neste painel: Sales, Financial Events, Reconciliation On Demand, Reconciliation, Settlement e Antecipation.
-                        As chamadas financeiras do backend panel agora tambem estao ativas neste painel, usando a Financial API v3 oficial via proxy autenticado no backend.
+
+                    <!-- 7. Financial -->
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>7. Financial</span>
+                            <span class="hm-badge">7 endpoints</span>
+                            <span class="hm-chevron">&#9660;</span>
+                        </div>
+                        <div class="homolog-module-body">
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:0 0 6px;text-transform:uppercase;letter-spacing:.05em;">Sales</div>
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Begin date</label>
+                                    <input type="text" class="form-input" id="homologFinancialSalesBeginDate" placeholder="2026-03-01">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">End date</label>
+                                    <input type="text" class="form-input" id="homologFinancialSalesEndDate" placeholder="2026-03-08">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Page</label>
+                                    <input type="text" class="form-input" id="homologFinancialSalesPage" placeholder="1">
+                                </div>
+                            </div>
+
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.05em;">Financial Events</div>
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Begin date</label>
+                                    <input type="text" class="form-input" id="homologFinancialEventsBeginDate" placeholder="2026-03-01">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">End date</label>
+                                    <input type="text" class="form-input" id="homologFinancialEventsEndDate" placeholder="2026-03-08">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Page</label>
+                                    <input type="text" class="form-input" id="homologFinancialEventsPage" placeholder="1">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Size</label>
+                                    <input type="text" class="form-input" id="homologFinancialEventsSize" placeholder="100">
+                                </div>
+                            </div>
+
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.05em;">Reconciliation</div>
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Competence (YYYY-MM)</label>
+                                    <input type="text" class="form-input" id="homologFinancialCompetence" placeholder="2026-03">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">On-demand request ID</label>
+                                    <input type="text" class="form-input" id="homologFinancialRequestId" placeholder="request id do POST">
+                                </div>
+                            </div>
+
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.05em;">Settlement</div>
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Payment begin</label>
+                                    <input type="text" class="form-input" id="homologSettlementBeginPaymentDate" placeholder="2026-03-01">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Payment end</label>
+                                    <input type="text" class="form-input" id="homologSettlementEndPaymentDate" placeholder="2026-03-08">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Calc begin</label>
+                                    <input type="text" class="form-input" id="homologSettlementBeginCalculationDate" placeholder="2026-03-01">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Calc end</label>
+                                    <input type="text" class="form-input" id="homologSettlementEndCalculationDate" placeholder="2026-03-08">
+                                </div>
+                            </div>
+
+                            <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin:10px 0 6px;text-transform:uppercase;letter-spacing:.05em;">Anticipation</div>
+                            <div class="form-row" style="margin-bottom:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Calc begin</label>
+                                    <input type="text" class="form-input" id="homologAnticipationBeginCalculationDate" placeholder="2026-03-01">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Calc end</label>
+                                    <input type="text" class="form-input" id="homologAnticipationEndCalculationDate" placeholder="2026-03-08">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Pay begin</label>
+                                    <input type="text" class="form-input" id="homologAnticipationBeginPaymentDate" placeholder="2026-03-01">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label class="form-label">Pay end</label>
+                                    <input type="text" class="form-input" id="homologAnticipationEndPaymentDate" placeholder="2026-03-08">
+                                </div>
+                            </div>
+
+                            <div class="endpoint-grid">
+                                <button class="btn btn-secondary" onclick="homologFinancialSales()">GET sales</button>
+                                <button class="btn btn-secondary" onclick="homologFinancialEvents()">GET financial-events</button>
+                                <button class="btn btn-secondary" onclick="homologFinancialReconciliation()">GET reconciliation</button>
+                                <button class="btn btn-secondary" onclick="homologFinancialReconciliationOnDemand()">POST reconciliation/on-demand</button>
+                                <button class="btn btn-secondary" onclick="homologFinancialReconciliationStatus()">GET on-demand/{requestId}</button>
+                                <button class="btn btn-secondary" onclick="homologFinancialSettlements()">GET settlements</button>
+                                <button class="btn btn-secondary" onclick="homologFinancialAnticipations()">GET anticipations</button>
+                            </div>
+                        </div>
                     </div>
                     <div class="response-box">
                         <div class="response-meta" id="homologResponseMeta">Nenhuma chamada executada.</div>
@@ -1501,10 +1604,23 @@
         async function homologOrderCancellationReasons() {
             const orderId = getHomologOrderId();
             if (!orderId) return;
-            await callHomologationEndpoint(
+            const resp = await callHomologationEndpoint(
                 'GET /orders/{orderId}/cancellationReasons',
                 `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/cancellation-reasons`
             );
+            // Try to populate the cancellation code input with returned reasons
+            try {
+                const data = resp?.body;
+                const reasons = data?.reasons || data?.result || [];
+                if (Array.isArray(reasons) && reasons.length > 0) {
+                    const codeInput = document.getElementById('homologCancellationCode');
+                    if (codeInput) {
+                        codeInput.value = reasons[0].cancelCodeId || reasons[0].code || '';
+                        codeInput.placeholder = reasons.map(r => `${r.cancelCodeId||r.code}: ${r.description||''}`).join(' | ');
+                    }
+                    showToast(`${reasons.length} motivos disponiveis. Primeiro: ${reasons[0].cancelCodeId||reasons[0].code} - ${reasons[0].description||''}`, 'success');
+                }
+            } catch (_) { /* response already displayed in result panel */ }
         }
 
         async function homologOrderRequestCancellation() {
@@ -1513,7 +1629,7 @@
             const cancellationCode = (document.getElementById('homologCancellationCode')?.value || '').trim();
             const reason = (document.getElementById('homologCancellationReason')?.value || '').trim();
             if (!cancellationCode) {
-                showToast('Informe o cancellation code para esse teste', 'error');
+                showToast('Busque os motivos primeiro (cancellationReasons) e informe o codigo', 'error');
                 return;
             }
             await callHomologationEndpoint(
