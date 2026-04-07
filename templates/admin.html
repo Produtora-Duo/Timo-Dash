@@ -429,11 +429,11 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Interrupcao - Start (ISO)</label>
-                            <input type="text" class="form-input" id="homologInterruptStart" placeholder="2026-03-05T18:30:00Z">
+                            <input type="text" class="form-input" id="homologInterruptStart" placeholder="YYYY-MM-DDTHH:MM:SSZ (futuro)">
                         </div>
                         <div class="form-group">
                             <label class="form-label">Interrupcao - End (ISO)</label>
-                            <input type="text" class="form-input" id="homologInterruptEnd" placeholder="2026-03-05T18:50:00Z">
+                            <input type="text" class="form-input" id="homologInterruptEnd" placeholder="YYYY-MM-DDTHH:MM:SSZ (futuro)">
                         </div>
                     </div>
                     <div class="form-group">
@@ -930,6 +930,30 @@
     </div>
 
     <script>
+        let csrfToken = null;
+        async function ensureCsrfToken() {
+            if (csrfToken) return csrfToken;
+            try {
+                const response = await fetch('/api/me');
+                const data = await response.json();
+                csrfToken = data.csrf_token || null;
+            } catch (_) {}
+            return csrfToken;
+        }
+        async function apiFetch(url, options = {}) {
+            const method = String(options.method || 'GET').toUpperCase();
+            const nextOptions = { ...(options || {}) };
+            if (String(url || '').startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+                const token = await ensureCsrfToken();
+                if (token) {
+                    const headers = new Headers(nextOptions.headers || {});
+                    if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', token);
+                    nextOptions.headers = headers;
+                }
+            }
+            return fetch(url, nextOptions);
+        }
+
         async function loadData() {
             await Promise.all([loadUsers(), loadIfoodConfig(), loadRestaurants()]);
         }
@@ -1137,8 +1161,6 @@
             if (tzInput && !tzInput.value) tzInput.value = 'America/Sao_Paulo';
             const orderStartInput = document.getElementById('homologOrdersStartDate');
             const orderEndInput = document.getElementById('homologOrdersEndDate');
-            const financialStartInput = document.getElementById('homologFinancialStartDate');
-            const financialEndInput = document.getElementById('homologFinancialEndDate');
             const competenceInput = document.getElementById('homologFinancialCompetence');
             const cancellationCodeInput = document.getElementById('homologCancellationCode');
             const pickupCodeInput = document.getElementById('homologPickupCode');
@@ -1148,7 +1170,6 @@
             const competenceValue = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
             if (orderStartInput && !orderStartInput.value) orderStartInput.value = isoDate;
             if (orderEndInput && !orderEndInput.value) orderEndInput.value = isoDate;
-            const competence = isoDate.slice(0, 7);
             [
                 'homologFinancialSalesBeginDate',
                 'homologFinancialSalesEndDate',
@@ -1166,22 +1187,13 @@
                 const input = document.getElementById(id);
                 if (input && !input.value) input.value = isoDate;
             });
-            const competenceInput = document.getElementById('homologFinancialCompetence');
-            if (competenceInput && !competenceInput.value) competenceInput.value = competence;
             const salesPageInput = document.getElementById('homologFinancialSalesPage');
             if (salesPageInput && !salesPageInput.value) salesPageInput.value = '1';
             const eventsPageInput = document.getElementById('homologFinancialEventsPage');
             if (eventsPageInput && !eventsPageInput.value) eventsPageInput.value = '1';
             const eventsSizeInput = document.getElementById('homologFinancialEventsSize');
             if (eventsSizeInput && !eventsSizeInput.value) eventsSizeInput.value = '100';
-            if (financialStartInput && !financialStartInput.value) financialStartInput.value = isoDate;
-            if (financialEndInput && !financialEndInput.value) financialEndInput.value = isoDate;
             if (competenceInput && !competenceInput.value) competenceInput.value = competenceValue;
-            if (cancellationCodeInput && !cancellationCodeInput.value) cancellationCodeInput.value = '503';
-            if (pickupCodeInput && !pickupCodeInput.value) pickupCodeInput.value = '1234';
-            if (deliveryCodeInput && !deliveryCodeInput.value) deliveryCodeInput.value = '1234';
-            if (reviewAnswerInput && !reviewAnswerInput.value) reviewAnswerInput.value = 'Obrigado pelo seu feedback.';
-            if (competenceInput && !competenceInput.value) competenceInput.value = competence;
             if (cancellationCodeInput && !cancellationCodeInput.value) cancellationCodeInput.value = '503';
             if (pickupCodeInput && !pickupCodeInput.value) pickupCodeInput.value = '1234';
             if (deliveryCodeInput && !deliveryCodeInput.value) deliveryCodeInput.value = '1234';
@@ -1211,7 +1223,7 @@
 
         async function callHomologationEndpoint(title, url, options = {}) {
             try {
-                const response = await fetch(url, options);
+                const response = await apiFetch(url, options);
                 const body = await renderHomologationResponse(title, response);
                 if (response.ok) {
                     showToast(`${title}: sucesso`, 'success');

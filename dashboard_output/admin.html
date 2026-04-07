@@ -450,11 +450,11 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">Interrupcao Start (ISO)</label>
-                        <input type="text" class="form-input" id="homologInterruptStart" placeholder="2026-03-05T18:30:00Z">
+                        <input type="text" class="form-input" id="homologInterruptStart" placeholder="YYYY-MM-DDTHH:MM:SSZ (futuro)">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Interrupcao End (ISO)</label>
-                        <input type="text" class="form-input" id="homologInterruptEnd" placeholder="2026-03-05T18:50:00Z">
+                        <input type="text" class="form-input" id="homologInterruptEnd" placeholder="YYYY-MM-DDTHH:MM:SSZ (futuro)">
                     </div>
                 </div>
                 <div class="form-group">
@@ -991,11 +991,31 @@
     </div>
 
     <script>
-        // Global 401 interceptor
+        // Global API fetch helpers
         const _origFetch = window.fetch;
-        window.fetch = async function(...args) {
-            const response = await _origFetch.apply(this, args);
-            if (response.status === 401 && !String(args[0]).includes('/api/login')) {
+        let csrfToken = null;
+        function apiPathFromFetchInput(input) {
+            if (typeof input === 'string') return input;
+            if (input && typeof input.url === 'string') return input.url;
+            return String(input || '');
+        }
+        function apiMethodFromFetchInput(input, options) {
+            return String((options && options.method) || (input && input.method) || 'GET').toUpperCase();
+        }
+        function withApiCsrf(input, options = {}) {
+            const nextOptions = { ...(options || {}) };
+            const path = apiPathFromFetchInput(input);
+            const method = apiMethodFromFetchInput(input, nextOptions);
+            if (csrfToken && path.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+                const headers = new Headers(nextOptions.headers || (input && input.headers) || {});
+                if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', csrfToken);
+                nextOptions.headers = headers;
+            }
+            return nextOptions;
+        }
+        window.fetch = async function(input, options = {}) {
+            const response = await _origFetch.call(this, input, withApiCsrf(input, options));
+            if (response.status === 401 && !apiPathFromFetchInput(input).includes('/api/login')) {
                 window.location.href = '/login';
             }
             return response;
@@ -2166,6 +2186,7 @@
                     window.location.href = '/login';
                     return;
                 }
+                csrfToken = data.csrf_token || csrfToken;
 
                 const u = data.user;
                 currentUserId = Number(u.id || 0) || null;
@@ -2233,8 +2254,6 @@
             if (endInput) endInput.value = end.toISOString();
             const orderStartInput = document.getElementById('homologOrdersStartDate');
             const orderEndInput = document.getElementById('homologOrdersEndDate');
-            const financialStartInput = document.getElementById('homologFinancialStartDate');
-            const financialEndInput = document.getElementById('homologFinancialEndDate');
             const competenceInput = document.getElementById('homologFinancialCompetence');
             const cancellationCodeInput = document.getElementById('homologCancellationCode');
             const pickupCodeInput = document.getElementById('homologPickupCode');
@@ -2244,7 +2263,6 @@
             const competenceValue = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
             if (orderStartInput && !orderStartInput.value) orderStartInput.value = isoDate;
             if (orderEndInput && !orderEndInput.value) orderEndInput.value = isoDate;
-            const competence = isoDate.slice(0, 7);
             [
                 'homologFinancialSalesBeginDate',
                 'homologFinancialSalesEndDate',
@@ -2262,15 +2280,12 @@
                 const input = document.getElementById(id);
                 if (input && !input.value) input.value = isoDate;
             });
-            if (competenceInput && !competenceInput.value) competenceInput.value = competence;
             const salesPageInput = document.getElementById('homologFinancialSalesPage');
             if (salesPageInput && !salesPageInput.value) salesPageInput.value = '1';
             const eventsPageInput = document.getElementById('homologFinancialEventsPage');
             if (eventsPageInput && !eventsPageInput.value) eventsPageInput.value = '1';
             const eventsSizeInput = document.getElementById('homologFinancialEventsSize');
             if (eventsSizeInput && !eventsSizeInput.value) eventsSizeInput.value = '100';
-            if (financialStartInput && !financialStartInput.value) financialStartInput.value = isoDate;
-            if (financialEndInput && !financialEndInput.value) financialEndInput.value = isoDate;
             if (competenceInput && !competenceInput.value) competenceInput.value = competenceValue;
             if (cancellationCodeInput && !cancellationCodeInput.value) cancellationCodeInput.value = '503';
             if (pickupCodeInput && !pickupCodeInput.value) pickupCodeInput.value = '1234';

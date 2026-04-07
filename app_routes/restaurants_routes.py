@@ -1539,6 +1539,169 @@ def register(app, deps):
             return internal_error_response()
 
 
+    # ========================================================================
+    # Homologation: Reviews
+    # ========================================================================
+
+    @bp.route('/api/ifood/homologation/reviews')
+    @login_required
+    def api_ifood_homologation_reviews():
+        """Live proxy for Review API list used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_review_filters()
+            if error_response:
+                return error_response
+
+            payload = api.list_reviews(
+                filters['merchant_id'],
+                page=filters.get('page'),
+                page_size=filters.get('page_size'),
+                add_count=filters.get('add_count'),
+            )
+            if payload is None:
+                return _ifood_error_response(
+                    api,
+                    action='listagem de avaliacoes (GET /review/v2.0/merchants/{merchantId}/reviews)',
+                    default_status=502
+                )
+
+            count = 0
+            if isinstance(payload, dict) and isinstance(payload.get('reviews'), list):
+                count = len(payload.get('reviews') or [])
+            elif isinstance(payload, list):
+                count = len(payload)
+
+            return jsonify({
+                'success': True,
+                'module': 'Review',
+                'api': 'Reviews',
+                'merchant_id': filters['merchant_id'],
+                'filters': {
+                    'page': filters.get('page'),
+                    'page_size': filters.get('page_size'),
+                    'add_count': filters.get('add_count'),
+                },
+                'count': count,
+                'payload': payload,
+            })
+        except Exception as e:
+            print(f"Error listing iFood reviews: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/reviews/summary')
+    @login_required
+    def api_ifood_homologation_review_summary():
+        """Live proxy for Review API summary used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_review_filters()
+            if error_response:
+                return error_response
+
+            payload = api.get_review_summary(filters['merchant_id'])
+            if payload is None:
+                return _ifood_error_response(
+                    api,
+                    action='resumo de avaliacoes (GET /review/v2.0/merchants/{merchantId}/summary)',
+                    default_status=502
+                )
+
+            return jsonify({
+                'success': True,
+                'module': 'Review',
+                'api': 'Review Summary',
+                'merchant_id': filters['merchant_id'],
+                'payload': payload,
+            })
+        except Exception as e:
+            print(f"Error getting iFood review summary: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/reviews/<review_id>')
+    @login_required
+    def api_ifood_homologation_review_details(review_id):
+        """Live proxy for Review API detail used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_review_filters()
+            if error_response:
+                return error_response
+
+            payload = api.get_review_details(filters['merchant_id'], review_id)
+            if payload is None:
+                return _ifood_error_response(
+                    api,
+                    action='detalhe de avaliacao (GET /review/v2.0/merchants/{merchantId}/reviews/{reviewId})',
+                    default_status=502
+                )
+
+            return jsonify({
+                'success': True,
+                'module': 'Review',
+                'api': 'Review Details',
+                'merchant_id': filters['merchant_id'],
+                'review_id': review_id,
+                'payload': payload,
+            })
+        except Exception as e:
+            print(f"Error getting iFood review details: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/reviews/<review_id>/answers', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_review_answer(review_id):
+        """Live proxy for Review API answer creation used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            if not isinstance(data, dict):
+                data = {}
+            filters, error_response = _get_homologation_review_filters(data)
+            if error_response:
+                return error_response
+
+            text = _payload_text_value(data, 'text', 'answer', 'message')
+            if not text:
+                return jsonify({'success': False, 'error': 'Review answer text required'}), 400
+
+            payload = api.answer_review(filters['merchant_id'], review_id, text)
+            if payload is None:
+                return _ifood_error_response(
+                    api,
+                    action='resposta de avaliacao (POST /review/v2.0/merchants/{merchantId}/reviews/{reviewId}/answers)',
+                    default_status=502
+                )
+
+            return jsonify({
+                'success': True,
+                'module': 'Review',
+                'api': 'Review Answer',
+                'merchant_id': filters['merchant_id'],
+                'review_id': review_id,
+                'payload': payload,
+            })
+        except Exception as e:
+            print(f"Error answering iFood review: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+
     @bp.route('/api/restaurant/<restaurant_id>/status')
     @login_required
     def api_restaurant_status(restaurant_id):

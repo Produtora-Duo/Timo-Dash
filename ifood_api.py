@@ -87,6 +87,7 @@ class IFoodAPI:
         self._mock_merchants = {}
         self._interruptions_cache = {}
         self._merchant_orders_cache = {}
+        self._opening_hours_cache = {}
         
         if self.use_mock_data:
             print("ðŸŽ­ Running in MOCK DATA mode - using sample data for testing")
@@ -749,6 +750,22 @@ class IFoodAPI:
         """Resolve full order payload by order id."""
         if not order_id:
             return None
+        if self.use_mock_data:
+            wanted_id = str(order_id).strip()
+            for orders in self._merchant_orders_cache.values():
+                for order in orders or []:
+                    if not isinstance(order, dict):
+                        continue
+                    if str(order.get('id') or order.get('orderId') or order.get('order_id') or '') == wanted_id:
+                        result = dict(order)
+                        result.setdefault('id', wanted_id)
+                        result.setdefault('mock', True)
+                        return result
+            return self._mock_order_action_response(wanted_id, 'details', extra={
+                'id': wanted_id,
+                'status': 'CONCLUDED',
+                'items': [],
+            })
 
         for endpoint in (
             f'/order/v1.0/orders/{order_id}',
@@ -1409,7 +1426,8 @@ class IFoodAPI:
         """Get merchant opening-hours configuration."""
         if self.use_mock_data:
             # Keep mock shape simple and deterministic for UI flows.
-            return {'timezone': 'America/Sao_Paulo', 'openingHours': []}
+            key = str(merchant_id or '').strip()
+            return self._opening_hours_cache.get(key) or {'timezone': 'America/Sao_Paulo', 'openingHours': []}
         return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}/opening-hours')
 
     def update_opening_hours(self, merchant_id: str, opening_hours, timezone_name: str = None):
@@ -1421,6 +1439,12 @@ class IFoodAPI:
             payload = dict(opening_hours)
         if timezone_name and not payload.get('timezone'):
             payload['timezone'] = timezone_name
+        if self.use_mock_data:
+            key = str(merchant_id or '').strip()
+            payload.setdefault('timezone', 'America/Sao_Paulo')
+            payload.setdefault('openingHours', [])
+            self._opening_hours_cache[key] = payload
+            return dict(payload)
         return self._request('PUT', f'/merchant/v1.0/merchants/{merchant_id}/opening-hours', data=payload)
     
     def get_merchant_status(self, merchant_id: str) -> Optional[Dict]:
