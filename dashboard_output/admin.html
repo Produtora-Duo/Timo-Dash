@@ -445,10 +445,6 @@
                         <input type="text" class="form-input" id="homologMerchantId" placeholder="d91ad16e-0abc-4149-8e86-b10a477659b8">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Interruption ID (DELETE)</label>
-                        <input type="text" class="form-input" id="homologInterruptionId" placeholder="id retornado no POST">
-                    </div>
-                    <div class="form-group">
                         <label class="form-label">Interrupcao Start (ISO)</label>
                         <input type="text" class="form-input" id="homologInterruptStart" placeholder="YYYY-MM-DDTHH:MM:SSZ (futuro)">
                     </div>
@@ -485,6 +481,7 @@
                     .homolog-module-body .form-row,.homolog-module-body .hm-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:8px;}
                     .homolog-module-body .hm-btn-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:8px;}
                     .hm-sub{font-size:11px;font-weight:600;color:var(--text-secondary);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em;}
+                    .hm-note{font-size:12px;color:var(--text-secondary);margin-top:4px;}
                 </style>
 
                 <!-- 1. Authentication -->
@@ -519,6 +516,13 @@
                             <button class="btn btn-secondary" onclick="homologListInterruptions()">GET interruptions</button>
                             <button class="btn btn-secondary" onclick="homologDeleteInterruption()">DELETE interruptions/{id}</button>
                         </div>
+                        <div class="form-group" style="margin-top:8px;">
+                            <label class="form-label">Interruption ID para DELETE</label>
+                            <input type="text" class="form-input" id="homologInterruptionId" placeholder="Digite ou cole um interruptionId especifico para remover">
+                            <div class="hm-note">
+                                Use um ID especifico ou clique em GET interruptions para preencher automaticamente.
+                            </div>
+                        </div>
                         <div class="hm-sub">Horario de Funcionamento</div>
                         <div class="form-group" style="margin-top:8px;">
                             <label class="form-label">Payload opening-hours (JSON)</label>
@@ -540,42 +544,37 @@
                 </div>
 
                 <!-- 3. Events / Polling -->
-                <div class="homolog-module">
-                    <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                        <span>3. Events / Polling</span>
-                        <span class="hm-chevron">&#9660;</span>
-                    </div>
-                    <div class="homolog-module-body">
-                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-                            <input type="checkbox" id="homologAckEvents">
-                            <label for="homologAckEvents" style="font-size:13px;color:var(--text-secondary);cursor:pointer;">Acknowledge events after polling</label>
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>3. Events / Polling</span>
+                            <span class="hm-chevron">&#9660;</span>
                         </div>
-                        <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologPollEvents()">POST /events:polling</button>
-                            <button class="btn btn-secondary" onclick="homologRefreshStatus()">GET /refresh-status</button>
-                            <button class="btn btn-secondary" onclick="homologEvidencePack()">GET /evidence-pack</button>
+                        <div class="homolog-module-body">
+                            <div class="hm-sub" style="margin-top:0;">Polling</div>
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                                <input type="checkbox" id="homologAckEvents">
+                                <label for="homologAckEvents" style="font-size:13px;color:var(--text-secondary);cursor:pointer;">Acknowledge events after polling</label>
+                            </div>
+                            <div class="hm-btn-grid">
+                                <button class="btn btn-secondary" onclick="homologPollEvents()">POST /events:polling</button>
+                            </div>
+                            <div class="hm-sub">Diagnosticos</div>
+                            <div class="hm-btn-grid">
+                                <button class="btn btn-secondary" onclick="homologRefreshStatus()">GET /refresh-status</button>
+                                <button class="btn btn-secondary" onclick="homologEvidencePack()">GET /evidence-pack</button>
+                            </div>
                         </div>
                     </div>
-                </div>
 
                 <!-- 4. Orders -->
                 <div class="homolog-module">
-                    <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                        <span>4. Orders (Pedidos)</span>
-                        <span class="hm-badge">12 endpoints</span>
-                        <span class="hm-chevron">&#9660;</span>
-                    </div>
-                    <div class="homolog-module-body">
-                        <div class="hm-row">
-                            <div class="form-group">
-                                <label class="form-label">Order ID</label>
-                                <input type="text" class="form-input" id="homologOrderId" placeholder="ID do pedido">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Status (opcional)</label>
-                                <input type="text" class="form-input" id="homologOrderStatus" placeholder="CONCLUDED">
-                            </div>
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>4. Orders (Pedidos)</span>
+                            <span class="hm-badge">12 endpoints</span>
+                            <span class="hm-chevron">&#9660;</span>
                         </div>
+                        <div class="homolog-module-body">
+                        <div class="hm-sub" style="margin-top:0;">Consulta</div>
                         <div class="hm-row">
                             <div class="form-group">
                                 <label class="form-label">Start date</label>
@@ -585,11 +584,24 @@
                                 <label class="form-label">End date</label>
                                 <input type="text" class="form-input" id="homologOrdersEndDate" placeholder="2026-03-08">
                             </div>
+                            <div class="form-group">
+                                <label class="form-label">Status (opcional)</label>
+                                <input type="text" class="form-input" id="homologOrderStatus" placeholder="CONCLUDED">
+                            </div>
                         </div>
-
-                        <div class="hm-sub">Consulta</div>
                         <div class="hm-btn-grid">
                             <button class="btn btn-secondary" onclick="homologListOrders()">GET /orders</button>
+                        </div>
+
+                        <div class="hm-sub">Pedido Selecionado</div>
+                        <div class="form-group" style="margin-top:8px;">
+                            <label class="form-label">Order ID</label>
+                            <input type="text" class="form-input" id="homologOrderId" placeholder="ID do pedido">
+                            <div class="hm-note">Use este ID nas seções de detalhes, fluxo, cancelamento e rastreamento.</div>
+                        </div>
+
+                        <div class="hm-sub">Detalhes</div>
+                        <div class="hm-btn-grid">
                             <button class="btn btn-secondary" onclick="homologOrderDetails()">GET /orders/{orderId}</button>
                             <button class="btn btn-secondary" onclick="homologOrderVirtualBag()">GET /orders/{orderId}/virtual-bag</button>
                         </div>
@@ -603,6 +615,9 @@
                         </div>
 
                         <div class="hm-sub">Cancelamento</div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologOrderCancellationReasons()">1. GET cancellationReasons</button>
+                        </div>
                         <div class="hm-row" style="margin-bottom:8px;">
                             <div class="form-group" style="margin:0;">
                                 <label class="form-label">Cancellation code</label>
@@ -614,7 +629,6 @@
                             </div>
                         </div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologOrderCancellationReasons()">1. GET cancellationReasons</button>
                             <button class="btn btn-secondary" onclick="homologOrderRequestCancellation()">2. POST requestCancellation</button>
                         </div>
 
@@ -638,53 +652,50 @@
                 </div>
 
                 <!-- 5. Negotiation Platform (Disputes) -->
-                <div class="homolog-module">
-                    <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                        <span>5. Plataforma de Negociacao</span>
-                        <span class="hm-badge">3 endpoints</span>
-                        <span class="hm-chevron">&#9660;</span>
-                    </div>
-                    <div class="homolog-module-body">
-                        <div class="hm-row" style="margin-bottom:8px;">
-                            <div class="form-group" style="margin:0;">
-                                <label class="form-label">Dispute ID</label>
-                                <input type="text" class="form-input" id="homologDisputeId" placeholder="ID da disputa">
-                            </div>
-                            <div class="form-group" style="margin:0;">
-                                <label class="form-label">Alternative ID</label>
-                                <input type="text" class="form-input" id="homologDisputeAlternativeId" placeholder="ID da alternativa">
-                            </div>
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>5. Plataforma de Negociacao</span>
+                            <span class="hm-badge">3 endpoints</span>
+                            <span class="hm-chevron">&#9660;</span>
                         </div>
+                        <div class="homolog-module-body">
+                        <div class="form-group">
+                            <label class="form-label">Dispute ID</label>
+                            <input type="text" class="form-input" id="homologDisputeId" placeholder="ID da disputa">
+                        </div>
+                        <div class="hm-sub">Acoes Diretas</div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologDisputeAccept()">POST accept</button>
+                        </div>
+                        <div class="hm-sub">Acoes com Payload</div>
                         <div class="form-group">
                             <label class="form-label">Payload (JSON opcional)</label>
                             <textarea class="form-input" id="homologDisputePayload" style="min-height:80px;font-family:var(--font-mono);">{"reason": "Nao concordamos com a disputa"}</textarea>
                         </div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologDisputeAccept()">POST accept</button>
                             <button class="btn btn-secondary" onclick="homologDisputeReject()">POST reject</button>
+                        </div>
+                        <div class="hm-row" style="margin-bottom:8px;">
+                            <div class="form-group" style="margin:0;">
+                                <label class="form-label">Alternative ID</label>
+                                <input type="text" class="form-input" id="homologDisputeAlternativeId" placeholder="ID da alternativa">
+                            </div>
+                        </div>
+                        <div class="hm-btn-grid">
                             <button class="btn btn-secondary" onclick="homologDisputeAlternative()">POST alternatives/{id}</button>
                         </div>
                     </div>
                 </div>
 
                 <!-- 6. Reviews -->
-                <div class="homolog-module">
-                    <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                        <span>6. Reviews</span>
-                        <span class="hm-badge">4 endpoints</span>
-                        <span class="hm-chevron">&#9660;</span>
-                    </div>
-                    <div class="homolog-module-body">
-                        <div class="hm-row" style="margin-bottom:8px;">
-                            <div class="form-group" style="margin:0;">
-                                <label class="form-label">Review ID</label>
-                                <input type="text" class="form-input" id="homologReviewId" placeholder="ID do review">
-                            </div>
-                            <div class="form-group" style="margin:0;">
-                                <label class="form-label">Answer text</label>
-                                <input type="text" class="form-input" id="homologReviewAnswer" placeholder="Obrigado pelo feedback">
-                            </div>
+                    <div class="homolog-module">
+                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                            <span>6. Reviews</span>
+                            <span class="hm-badge">4 endpoints</span>
+                            <span class="hm-chevron">&#9660;</span>
                         </div>
+                        <div class="homolog-module-body">
+                        <div class="hm-sub" style="margin-top:0;">Consulta</div>
                         <div class="hm-row" style="margin-bottom:8px;">
                             <div class="form-group" style="margin:0;">
                                 <label class="form-label">Page</label>
@@ -697,9 +708,23 @@
                         </div>
                         <div class="hm-btn-grid">
                             <button class="btn btn-secondary" onclick="homologListReviews()">GET /reviews</button>
-                            <button class="btn btn-secondary" onclick="homologReviewDetails()">GET /reviews/{id}</button>
-                            <button class="btn btn-secondary" onclick="homologReviewAnswer()">POST /reviews/{id}/answers</button>
                             <button class="btn btn-secondary" onclick="homologReviewSummary()">GET /reviews/summary</button>
+                        </div>
+                        <div class="hm-sub">Review Selecionado</div>
+                        <div class="form-group">
+                            <label class="form-label">Review ID</label>
+                            <input type="text" class="form-input" id="homologReviewId" placeholder="ID do review">
+                        </div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologReviewDetails()">GET /reviews/{id}</button>
+                        </div>
+                        <div class="hm-sub">Resposta</div>
+                        <div class="form-group">
+                            <label class="form-label">Answer text</label>
+                            <input type="text" class="form-input" id="homologReviewAnswer" placeholder="Obrigado pelo feedback">
+                        </div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologReviewAnswer()">POST /reviews/{id}/answers</button>
                         </div>
                     </div>
                 </div>
@@ -711,7 +736,7 @@
                         <span class="hm-badge">7 endpoints</span>
                         <span class="hm-chevron">&#9660;</span>
                     </div>
-                    <div class="homolog-module-body">
+                        <div class="homolog-module-body">
                         <div class="hm-sub" style="margin-top:0;">Sales</div>
                         <div class="hm-row" style="margin-bottom:8px;">
                             <div class="form-group" style="margin:0;">
@@ -726,6 +751,9 @@
                                 <label class="form-label">Page</label>
                                 <input type="text" class="form-input" id="homologFinancialSalesPage" placeholder="1">
                             </div>
+                        </div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologFinancialSales()">GET sales</button>
                         </div>
 
                         <div class="hm-sub">Financial Events</div>
@@ -747,6 +775,9 @@
                                 <input type="text" class="form-input" id="homologFinancialEventsSize" placeholder="100">
                             </div>
                         </div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologFinancialEvents()">GET financial-events</button>
+                        </div>
 
                         <div class="hm-sub">Reconciliation</div>
                         <div class="hm-row" style="margin-bottom:8px;">
@@ -757,7 +788,13 @@
                             <div class="form-group" style="margin:0;">
                                 <label class="form-label">On-demand request ID</label>
                                 <input type="text" class="form-input" id="homologFinancialRequestId" placeholder="request id do POST">
+                                <div class="hm-note">O request ID e preenchido automaticamente apos o POST on-demand.</div>
                             </div>
+                        </div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologFinancialReconciliation()">GET reconciliation</button>
+                            <button class="btn btn-secondary" onclick="homologFinancialReconciliationOnDemand()">POST reconciliation/on-demand</button>
+                            <button class="btn btn-secondary" onclick="homologFinancialReconciliationStatus()">GET on-demand/{requestId}</button>
                         </div>
 
                         <div class="hm-sub">Settlement</div>
@@ -779,6 +816,9 @@
                                 <input type="text" class="form-input" id="homologSettlementEndCalculationDate" placeholder="2026-03-08">
                             </div>
                         </div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologFinancialSettlements()">GET settlements</button>
+                        </div>
 
                         <div class="hm-sub">Anticipation</div>
                         <div class="hm-row" style="margin-bottom:8px;">
@@ -799,14 +839,7 @@
                                 <input type="text" class="form-input" id="homologAnticipationEndPaymentDate" placeholder="2026-03-08">
                             </div>
                         </div>
-
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologFinancialSales()">GET sales</button>
-                            <button class="btn btn-secondary" onclick="homologFinancialEvents()">GET financial-events</button>
-                            <button class="btn btn-secondary" onclick="homologFinancialReconciliation()">GET reconciliation</button>
-                            <button class="btn btn-secondary" onclick="homologFinancialReconciliationOnDemand()">POST reconciliation/on-demand</button>
-                            <button class="btn btn-secondary" onclick="homologFinancialReconciliationStatus()">GET on-demand/{requestId}</button>
-                            <button class="btn btn-secondary" onclick="homologFinancialSettlements()">GET settlements</button>
                             <button class="btn btn-secondary" onclick="homologFinancialAnticipations()">GET anticipations</button>
                         </div>
                     </div>
