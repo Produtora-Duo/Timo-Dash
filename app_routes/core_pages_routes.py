@@ -199,6 +199,15 @@ def register_routes(bp, ctx: RouteContext):
             return send_file(squads_file)
         return "Squads page not found", 404
 
+    @bp.route('/ifood-homologation')
+    @admin_page_required
+    def ifood_homologation_page():
+        """Serve iFood homologation endpoints page"""
+        homolog_file = DASHBOARD_OUTPUT / 'ifood_homologation.html'
+        if homolog_file.exists():
+            return send_file(homolog_file)
+        return "iFood homologation page not found", 404
+
     @bp.route('/restaurant/<restaurant_id>')
     @login_required
     def restaurant_page(restaurant_id):
