@@ -111,9 +111,23 @@ def register(app, deps):
                 'Nao autorizado no iFood. Revise as credenciais da organizacao.'
             )), 401
         if status_code == 403:
-            return jsonify(_error_payload(
+            payload = _error_payload(
                 'Permissao insuficiente no iFood para a loja informada.'
-            )), 403
+            )
+            payload['permission_gap'] = True
+            payload['homologation_impact'] = (
+                'A chamada chegou ao iFood, mas o token/app nao tem permissao para esse recurso.'
+            )
+            if 'virtual-bag' in endpoint_text:
+                payload['homologation_note'] = (
+                    'GET /orders/{orderId}/virtual-bag foi negado pelo iFood para este app/loja. '
+                    'Esse endpoint e usado para pedidos GROCERY; para FOOD, a documentacao usa GET /orders/{orderId}. '
+                    'Para evidencia de itens do pedido, use GET /orders/{orderId} e o painel Order Evidence.'
+                )
+                payload['recommended_action'] = (
+                    'Se o avaliador exigir virtual-bag, solicite ao iFood a liberacao desse recurso no escopo do app.'
+                )
+            return jsonify(payload), 403
         if status_code == 409:
             return jsonify(_error_payload(
                 'Conflito detectado (ex.: sobreposicao de interrupcao/horario). Ajuste a janela e tente novamente.'
@@ -165,6 +179,7 @@ def register(app, deps):
         return 0
 
     HOMOLOGATION_FINANCIAL_HEADERS = {'x-request-homologation': 'true'}
+    HOMOLOGATION_ORDER_HEADERS = {'x-request-homologation': 'true'}
 
     def _snapshot_order_summary(snapshot):
         if not isinstance(snapshot, dict):
@@ -235,7 +250,7 @@ def register(app, deps):
         if allow_live_fetch:
             api = get_resilient_api_client()
             if api:
-                details = api.get_order_details(order_id)
+                details = api.get_order_details(order_id, headers=HOMOLOGATION_ORDER_HEADERS)
                 if isinstance(details, dict) and details:
                     order_payload = details
                     _persist_homologation_order_snapshot(details, source='homologation_details')
@@ -1358,7 +1373,13 @@ def register(app, deps):
             end_date = str(request.args.get('end_date') or request.args.get('endDate') or '').strip() or None
             status = str(request.args.get('status') or '').strip() or None
 
-            orders = api.get_orders(merchant_id, start_date, end_date, status)
+            orders = api.get_orders(
+                merchant_id,
+                start_date,
+                end_date,
+                status,
+                headers=HOMOLOGATION_ORDER_HEADERS,
+            )
             if orders is None:
                 return _ifood_error_response(api, action='listagem de pedidos (GET /orders)', default_status=502)
             if not isinstance(orders, list):
@@ -1418,7 +1439,7 @@ def register(app, deps):
             if not api:
                 return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
 
-            details = api.get_order_details(order_id)
+            details = api.get_order_details(order_id, headers=HOMOLOGATION_ORDER_HEADERS)
             if details is None:
                 return _ifood_error_response(
                     api,
@@ -2278,9 +2299,9 @@ def register(app, deps):
             if not method_fn:
                 return jsonify({'success': False, 'error': f'Method {api_method} not available'}), 501
             if extra_payload is not None:
-                result = method_fn(order_id, **extra_payload)
+                result = method_fn(order_id, **extra_payload, headers=HOMOLOGATION_ORDER_HEADERS)
             else:
-                result = method_fn(order_id)
+                result = method_fn(order_id, headers=HOMOLOGATION_ORDER_HEADERS)
             if result is None:
                 return _ifood_error_response(api, action=action_name, default_status=502)
             return jsonify({'success': True, 'module': 'Order', 'action': action_name, 'result': result})
@@ -2317,7 +2338,7 @@ def register(app, deps):
             api = get_resilient_api_client()
             if not api:
                 return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-            reasons = api.get_order_cancellation_reasons(order_id)
+            reasons = api.get_order_cancellation_reasons(order_id, headers=HOMOLOGATION_ORDER_HEADERS)
             if reasons is None:
                 return _ifood_error_response(api, action='cancellationReasons', default_status=502)
             return jsonify({
@@ -2345,7 +2366,12 @@ def register(app, deps):
             reason = str(data.get('reason') or '').strip() or None
             if not cancellation_code:
                 return jsonify({'success': False, 'error': 'cancellation_code is required (get from /cancellationReasons first)'}), 400
-            result = api.request_order_cancellation(order_id, cancellation_code, reason)
+            result = api.request_order_cancellation(
+                order_id,
+                cancellation_code,
+                reason,
+                headers=HOMOLOGATION_ORDER_HEADERS,
+            )
             if result is None:
                 return _ifood_error_response(api, action='requestCancellation', default_status=502)
             return jsonify({'success': True, 'module': 'Order', 'action': 'requestCancellation', 'result': result})

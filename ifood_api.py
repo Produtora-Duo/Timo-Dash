@@ -375,7 +375,8 @@ class IFoodAPI:
         return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}')
     
     def get_orders(self, merchant_id: str, start_date: str = None,
-                   end_date: str = None, status: str = None) -> List[Dict]:
+                   end_date: str = None, status: str = None,
+                   headers: Dict = None) -> List[Dict]:
         """Get orders (real or mock)
         
         FIXED: Returns the orders from cached mock data
@@ -449,7 +450,7 @@ class IFoodAPI:
 
         resolved_orders = []
         for order_id in dedup_order_ids:
-            details = self.get_order_details(order_id)
+            details = self.get_order_details(order_id, headers=headers)
             if isinstance(details, dict) and details:
                 normalized_current_status = self._normalize_order_status(details.get('orderStatus'))
                 if normalized_current_status == 'UNKNOWN':
@@ -484,7 +485,7 @@ class IFoodAPI:
                 fallback_params['createdAtEnd'] = f"{end_date}T23:59:59Z"
             if status:
                 fallback_params['status'] = status
-            fallback_result = self._request('GET', '/order/v1.0/orders', params=fallback_params)
+            fallback_result = self._request('GET', '/order/v1.0/orders', params=fallback_params, headers=headers)
             fallback_orders = self._extract_order_payload_list(fallback_result)
             last_error = self._last_http_error if isinstance(self._last_http_error, dict) else {}
             if (
@@ -746,7 +747,7 @@ class IFoodAPI:
         self._last_ack_trace = trace
         return {'success': False, 'requested': requested, 'acknowledged': 0, 'trace': trace}
 
-    def get_order_details(self, order_id: str) -> Optional[Dict]:
+    def get_order_details(self, order_id: str, headers: Dict = None) -> Optional[Dict]:
         """Resolve full order payload by order id."""
         if not order_id:
             return None
@@ -771,7 +772,7 @@ class IFoodAPI:
             f'/order/v1.0/orders/{order_id}',
             f'/orders/{order_id}',
         ):
-            payload = self._request('GET', endpoint)
+            payload = self._request('GET', endpoint, headers=headers)
             if isinstance(payload, dict) and payload:
                 if not payload.get('id'):
                     payload['id'] = order_id
@@ -790,7 +791,7 @@ class IFoodAPI:
             payload.update(extra)
         return payload
 
-    def get_order_virtual_bag(self, order_id: str):
+    def get_order_virtual_bag(self, order_id: str, headers: Dict = None):
         if not order_id:
             return None
         if self.use_mock_data:
@@ -802,37 +803,37 @@ class IFoodAPI:
                     'replacementOptions': {},
                 },
             }
-        return self._request('GET', f'/order/v1.0/orders/{order_id}/virtual-bag')
+        return self._request('GET', f'/order/v1.0/orders/{order_id}/virtual-bag', headers=headers)
 
-    def confirm_order(self, order_id: str):
+    def confirm_order(self, order_id: str, headers: Dict = None):
         if not order_id:
             return None
         if self.use_mock_data:
             return self._mock_order_action_response(order_id, 'confirm')
-        return self._request('POST', f'/order/v1.0/orders/{order_id}/confirm')
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/confirm', headers=headers)
 
-    def start_order_preparation(self, order_id: str):
+    def start_order_preparation(self, order_id: str, headers: Dict = None):
         if not order_id:
             return None
         if self.use_mock_data:
             return self._mock_order_action_response(order_id, 'startPreparation')
-        return self._request('POST', f'/order/v1.0/orders/{order_id}/startPreparation')
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/startPreparation', headers=headers)
 
-    def dispatch_order(self, order_id: str):
+    def dispatch_order(self, order_id: str, headers: Dict = None):
         if not order_id:
             return None
         if self.use_mock_data:
             return self._mock_order_action_response(order_id, 'dispatch')
-        return self._request('POST', f'/order/v1.0/orders/{order_id}/dispatch')
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/dispatch', headers=headers)
 
-    def ready_order_for_pickup(self, order_id: str):
+    def ready_order_for_pickup(self, order_id: str, headers: Dict = None):
         if not order_id:
             return None
         if self.use_mock_data:
             return self._mock_order_action_response(order_id, 'readyToPickup')
-        return self._request('POST', f'/order/v1.0/orders/{order_id}/readyToPickup')
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/readyToPickup', headers=headers)
 
-    def get_order_cancellation_reasons(self, order_id: str):
+    def get_order_cancellation_reasons(self, order_id: str, headers: Dict = None):
         if not order_id:
             return None
         if self.use_mock_data:
@@ -841,9 +842,9 @@ class IFoodAPI:
                 {'cancelCodeId': '503', 'description': 'Item unavailable'},
                 {'cancelCodeId': '509', 'description': 'Internal restaurant difficulties'},
             ]
-        return self._request('GET', f'/order/v1.0/orders/{order_id}/cancellationReasons')
+        return self._request('GET', f'/order/v1.0/orders/{order_id}/cancellationReasons', headers=headers)
 
-    def request_order_cancellation(self, order_id: str, cancellation_code, reason: str = None):
+    def request_order_cancellation(self, order_id: str, cancellation_code, reason: str = None, headers: Dict = None):
         if not order_id:
             return None
         payload = self._clean_request_params({
@@ -852,9 +853,9 @@ class IFoodAPI:
         })
         if self.use_mock_data:
             return self._mock_order_action_response(order_id, 'requestCancellation', extra=payload)
-        return self._request('POST', f'/order/v1.0/orders/{order_id}/requestCancellation', data=payload)
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/requestCancellation', data=payload, headers=headers)
 
-    def get_order_tracking(self, order_id: str):
+    def get_order_tracking(self, order_id: str, headers: Dict = None):
         if not order_id:
             return None
         if self.use_mock_data:
@@ -868,29 +869,29 @@ class IFoodAPI:
                 'deliveryEtaEnd': 900,
                 'trackDate': datetime.utcnow().isoformat() + 'Z',
             }
-        payload = self._request('POST', f'/order/v1.0/orders/{order_id}/tracking')
+        payload = self._request('POST', f'/order/v1.0/orders/{order_id}/tracking', headers=headers)
         if payload is not None:
             return payload
-        return self._request('GET', f'/order/v1.0/orders/{order_id}/tracking')
+        return self._request('GET', f'/order/v1.0/orders/{order_id}/tracking', headers=headers)
 
-    def validate_order_pickup_code(self, order_id: str, code: str):
+    def validate_order_pickup_code(self, order_id: str, code: str, headers: Dict = None):
         if not order_id or not str(code or '').strip():
             return None
         payload = {'code': str(code).strip()}
         if self.use_mock_data:
             return self._mock_order_action_response(order_id, 'validatePickupCode', extra={'valid': True, **payload})
-        return self._request('POST', f'/order/v1.0/orders/{order_id}/validatePickupCode', data=payload)
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/validatePickupCode', data=payload, headers=headers)
 
-    def verify_order_delivery_code(self, order_id: str, code: str):
+    def verify_order_delivery_code(self, order_id: str, code: str, headers: Dict = None):
         if not order_id or not str(code or '').strip():
             return None
         payload = {'code': str(code).strip()}
         if self.use_mock_data:
             return self._mock_order_action_response(order_id, 'verifyDeliveryCode', extra={'valid': True, **payload})
-        result = self._request('POST', f'/order/v1.0/orders/{order_id}/verifyDeliveryCode', data=payload)
+        result = self._request('POST', f'/order/v1.0/orders/{order_id}/verifyDeliveryCode', data=payload, headers=headers)
         if result is not None:
             return result
-        return self._request('POST', f'/logistics/v1.0/orders/{order_id}/verifyDeliveryCode', data=payload)
+        return self._request('POST', f'/logistics/v1.0/orders/{order_id}/verifyDeliveryCode', data=payload, headers=headers)
 
     def accept_dispute(self, dispute_id: str):
         if not dispute_id:

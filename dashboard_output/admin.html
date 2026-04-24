@@ -619,6 +619,7 @@
                             <button class="btn btn-secondary" onclick="homologOrderVirtualBag()">GET /orders/{orderId}/virtual-bag</button>
                             <button class="btn btn-secondary" onclick="homologOrderEvidence()">GET /orders/{orderId}/evidence</button>
                         </div>
+                        <div class="hm-note">Virtual-bag e esperado para pedidos GROCERY. Em pedidos FOOD, use GET details + Order Evidence para provar itens e observacoes; se ainda retornar 403, o iFood negou esse recurso para o escopo atual do app/loja.</div>
                         <div class="hm-evidence-panel">
                             <div class="hm-sub" style="margin-top:0;">Order Evidence</div>
                             <div class="hm-note" id="homologOrderEvidenceSummary">Busque detalhes ou evidencia para preencher o checklist de homologacao.</div>
@@ -2367,6 +2368,7 @@
                 const response = await fetch(url, options);
                 const body = await renderHomologationResponse(title, response);
                 if (response.ok) showToast(`${title}: sucesso`, 'success');
+                else if (body?.permission_gap) showToast(`${title}: permissao iFood insuficiente`, 'error');
                 else showToast(`${title}: falha (${response.status})`, 'error');
                 return { response, body };
             } catch (error) {

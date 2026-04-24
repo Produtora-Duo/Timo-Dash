@@ -148,6 +148,27 @@ def test_financial_methods_forward_homologation_header():
     assert captured['endpoint'].endswith('/merchants/merchant-1/sales')
 
 
+def test_order_virtual_bag_forwards_homologation_header():
+    api = IFoodAPI('client', 'secret')
+    captured = {}
+
+    def fake_request(method, endpoint, params=None, data=None, headers=None):
+        captured['method'] = method
+        captured['endpoint'] = endpoint
+        captured['headers'] = headers
+        return {}
+
+    api._request = fake_request
+    api.get_order_virtual_bag(
+        'order-1',
+        headers={'x-request-homologation': 'true'},
+    )
+
+    assert captured['method'] == 'GET'
+    assert captured['headers'] == {'x-request-homologation': 'true'}
+    assert captured['endpoint'].endswith('/orders/order-1/virtual-bag')
+
+
 def test_review_list_forwards_homologation_filters():
     api = IFoodAPI('client', 'secret')
     captured = {}
@@ -278,7 +299,7 @@ def test_readiness_order_is_partial_without_order_evidence(monkeypatch, client):
 
 
 def test_admin_ui_exposes_order_evidence_panel():
-    html = open('templates/admin.html', encoding='utf-8').read()
+    html = open('dashboard_output/admin.html', encoding='utf-8').read()
     assert 'Order Evidence' in html
     assert '/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/evidence' in html
     assert 'homologRecentOrders' in html
