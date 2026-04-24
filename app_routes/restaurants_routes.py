@@ -3,6 +3,7 @@
 from flask import Blueprint
 from app_services import restaurants_service
 from app_routes.dependencies import bind_dependencies
+from ifood_homologation_evidence import build_ifood_order_evidence
 
 
 REQUIRED_DEPS = [
@@ -14,6 +15,7 @@ REQUIRED_DEPS = [
     'admin_required',
     'copy',
     'datetime',
+    'db',
     'detect_restaurant_closure',
     'ensure_restaurant_financial_sales_cache',
     'ensure_restaurant_orders_cache',
@@ -162,6 +164,107 @@ def register(app, deps):
             return 1 if payload else 0
         return 0
 
+    HOMOLOGATION_FINANCIAL_HEADERS = {'x-request-homologation': 'true'}
+
+    def _snapshot_order_summary(snapshot):
+        if not isinstance(snapshot, dict):
+            return {}
+        payload = snapshot.get('payload') if isinstance(snapshot.get('payload'), dict) else {}
+        return {
+            'order_id': snapshot.get('order_id') or payload.get('id') or payload.get('orderId'),
+            'merchant_id': snapshot.get('merchant_id') or payload.get('merchantId'),
+            'display_id': payload.get('displayId') or payload.get('display_id'),
+            'status': snapshot.get('status') or payload.get('status') or payload.get('orderStatus'),
+            'source': snapshot.get('source'),
+            'order_updated_at': snapshot.get('order_updated_at'),
+            'snapshot_updated_at': snapshot.get('updated_at'),
+        }
+
+    def _order_id_from_payload(payload, fallback=None):
+        if not isinstance(payload, dict):
+            return fallback
+        return (
+            payload.get('id')
+            or payload.get('orderId')
+            or payload.get('order_id')
+            or fallback
+        )
+
+    def _merchant_id_from_order_payload(payload, fallback=None):
+        if not isinstance(payload, dict):
+            return fallback
+        return (
+            payload.get('merchantId')
+            or payload.get('merchant_id')
+            or payload.get('merchant', {}).get('id')
+            or fallback
+        )
+
+    def _status_from_order_payload(payload):
+        if not isinstance(payload, dict):
+            return None
+        return payload.get('status') or payload.get('orderStatus')
+
+    def _persist_homologation_order_snapshot(order_payload, *, source='homologation'):
+        if not isinstance(order_payload, dict):
+            return False
+        org_id = get_current_org_id()
+        order_id = _order_id_from_payload(order_payload)
+        merchant_id = _merchant_id_from_order_payload(order_payload)
+        if not org_id or not order_id or not merchant_id:
+            return False
+        try:
+            return bool(db.upsert_ifood_order_snapshot(
+                org_id,
+                merchant_id,
+                order_id,
+                order_payload,
+                source=source,
+                status=_status_from_order_payload(order_payload),
+            ))
+        except Exception:
+            return False
+
+    def _build_order_evidence_for_current_org(order_id, *, allow_live_fetch=True):
+        org_id = get_current_org_id()
+        snapshot = db.get_ifood_order_snapshot(org_id, order_id) if org_id else None
+        events = db.list_ifood_order_events(org_id=org_id, order_id=order_id, limit=80) if org_id else []
+        order_payload = snapshot.get('payload') if isinstance(snapshot, dict) else None
+        live_error = None
+
+        if allow_live_fetch:
+            api = get_resilient_api_client()
+            if api:
+                details = api.get_order_details(order_id)
+                if isinstance(details, dict) and details:
+                    order_payload = details
+                    _persist_homologation_order_snapshot(details, source='homologation_details')
+                    merchant_id = _merchant_id_from_order_payload(details)
+                    if merchant_id and not events:
+                        events = db.list_ifood_order_events(
+                            org_id=org_id,
+                            order_id=order_id,
+                            merchant_id=merchant_id,
+                            limit=80
+                        )
+                elif details is None:
+                    live_error = getattr(api, 'get_last_http_error', lambda: None)()
+
+        if not isinstance(order_payload, dict) or not order_payload:
+            return None, live_error
+
+        evidence = build_ifood_order_evidence(
+            order_payload,
+            snapshot=snapshot or {},
+            events=events,
+        )
+        evidence['raw_available'] = {
+            'order_details': bool(order_payload),
+            'snapshot': bool(snapshot),
+            'events': bool(events),
+        }
+        return evidence, live_error
+
     def _parse_reopenable_flag(status_payload):
         if not isinstance(status_payload, dict):
             return None
@@ -302,6 +405,25 @@ def register(app, deps):
                 if data.get('addCount') is not None
                 else True
             ),
+            'date_from': str(
+                request.args.get('date_from')
+                or request.args.get('dateFrom')
+                or data.get('date_from')
+                or data.get('dateFrom')
+                or ''
+            ).strip() or None,
+            'date_to': str(
+                request.args.get('date_to')
+                or request.args.get('dateTo')
+                or data.get('date_to')
+                or data.get('dateTo')
+                or ''
+            ).strip() or None,
+            'status': str(
+                request.args.get('status')
+                or data.get('status')
+                or ''
+            ).strip() or None,
         }
         return filters, None
 
@@ -1018,6 +1140,170 @@ def register(app, deps):
             log_exception("request_exception", e)
             return internal_error_response()
 
+    @bp.route('/api/ifood/homologation/merchants/<merchant_id>/status')
+    @login_required
+    def api_ifood_homologation_merchant_status(merchant_id):
+        """Live proxy for iFood GET /merchants/{merchantId}/status."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            status_payload = api.get_merchant_status(merchant_id)
+            if status_payload is None:
+                return _ifood_error_response(
+                    api,
+                    action='status da loja (GET /merchants/{merchantId}/status)',
+                    default_status=502
+                )
+            return jsonify({
+                'success': True,
+                'module': 'Merchant',
+                'api': 'Merchant Status',
+                'merchant_id': merchant_id,
+                'status': status_payload,
+            })
+        except Exception as e:
+            print(f"Error getting iFood merchant status: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/merchants/<merchant_id>/interruptions', methods=['GET', 'POST'])
+    @login_required
+    def api_ifood_homologation_merchant_interruptions(merchant_id):
+        """Live proxy for iFood GET/POST /merchants/{merchantId}/interruptions."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if request.method == 'GET':
+                payload = api.get_interruptions(merchant_id)
+                if payload is None:
+                    return _ifood_error_response(
+                        api,
+                        action='interrupcoes da loja (GET /merchants/{merchantId}/interruptions)',
+                        default_status=502
+                    )
+                return jsonify({
+                    'success': True,
+                    'module': 'Merchant',
+                    'api': 'Merchant Interruptions',
+                    'merchant_id': merchant_id,
+                    'interruptions': payload if isinstance(payload, list) else [],
+                })
+
+            data = get_json_payload()
+            if not isinstance(data, dict):
+                data = {}
+            start = str(data.get('start') or '').strip()
+            end = str(data.get('end') or '').strip()
+            description = str(data.get('description') or '').strip()
+            if not start or not end:
+                return jsonify({'success': False, 'error': 'start and end are required'}), 400
+            if len(description) < 4:
+                return jsonify({'success': False, 'error': 'description is required and must be clear'}), 400
+            created = api.create_interruption(merchant_id, start, end, description)
+            if created is None:
+                return _ifood_error_response(
+                    api,
+                    action='criacao de interrupcao (POST /merchants/{merchantId}/interruptions)',
+                    default_status=502
+                )
+            return jsonify({
+                'success': True,
+                'module': 'Merchant',
+                'api': 'Create Merchant Interruption',
+                'merchant_id': merchant_id,
+                'interruption': created,
+            }), 201
+        except Exception as e:
+            print(f"Error handling iFood merchant interruptions: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/merchants/<merchant_id>/interruptions/<interruption_id>', methods=['DELETE'])
+    @login_required
+    def api_ifood_homologation_merchant_delete_interruption(merchant_id, interruption_id):
+        """Live proxy for iFood DELETE /merchants/{merchantId}/interruptions/{id}."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            deleted = api.delete_interruption(merchant_id, interruption_id)
+            if not deleted:
+                return _ifood_error_response(
+                    api,
+                    action='remocao de interrupcao (DELETE /merchants/{merchantId}/interruptions/{id})',
+                    default_status=502
+                )
+            return jsonify({
+                'success': True,
+                'module': 'Merchant',
+                'api': 'Delete Merchant Interruption',
+                'merchant_id': merchant_id,
+                'interruption_id': interruption_id,
+            })
+        except Exception as e:
+            print(f"Error deleting iFood merchant interruption: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/merchants/<merchant_id>/opening-hours', methods=['GET', 'PUT'])
+    @login_required
+    def api_ifood_homologation_merchant_opening_hours(merchant_id):
+        """Live proxy for iFood GET/PUT /merchants/{merchantId}/opening-hours."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if request.method == 'GET':
+                opening_hours = api.get_opening_hours(merchant_id)
+                if opening_hours is None:
+                    return _ifood_error_response(
+                        api,
+                        action='horario de funcionamento (GET /merchants/{merchantId}/opening-hours)',
+                        default_status=502
+                    )
+                return jsonify({
+                    'success': True,
+                    'module': 'Merchant',
+                    'api': 'Merchant Opening Hours',
+                    'merchant_id': merchant_id,
+                    'opening_hours': opening_hours,
+                })
+
+            data = get_json_payload()
+            if not isinstance(data, dict):
+                data = {}
+            opening_hours_raw = (
+                data.get('opening_hours')
+                if data.get('opening_hours') is not None
+                else data.get('openingHours')
+                if data.get('openingHours') is not None
+                else data.get('hours')
+            )
+            timezone_name = str(data.get('timezone') or '').strip() or None
+            normalized_hours, validation_error = _normalize_opening_hours_entries(opening_hours_raw)
+            if validation_error:
+                return jsonify({'success': False, 'error': validation_error}), 400
+            updated = api.update_opening_hours(merchant_id, normalized_hours, timezone_name=timezone_name)
+            if updated is None:
+                return _ifood_error_response(
+                    api,
+                    action='atualizacao de horario (PUT /merchants/{merchantId}/opening-hours)',
+                    default_status=502
+                )
+            return jsonify({
+                'success': True,
+                'module': 'Merchant',
+                'api': 'Update Merchant Opening Hours',
+                'merchant_id': merchant_id,
+                'opening_hours': updated,
+            }), 201
+        except Exception as e:
+            print(f"Error handling iFood merchant opening hours: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
     @bp.route('/api/ifood/homologation/authentication', methods=['POST'])
     @login_required
     def api_ifood_homologation_authentication():
@@ -1077,6 +1363,8 @@ def register(app, deps):
                 return _ifood_error_response(api, action='listagem de pedidos (GET /orders)', default_status=502)
             if not isinstance(orders, list):
                 orders = []
+            for order_payload in orders[:50]:
+                _persist_homologation_order_snapshot(order_payload, source='homologation_list')
 
             return jsonify({
                 'success': True,
@@ -1092,6 +1380,32 @@ def register(app, deps):
             })
         except Exception as e:
             print(f"Error listing iFood orders: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/recent')
+    @login_required
+    def api_ifood_homologation_recent_orders():
+        """Recent local order candidates from webhook/polling snapshots."""
+        try:
+            org_id = get_current_org_id()
+            merchant_id = str(
+                request.args.get('merchant_id')
+                or request.args.get('merchantId')
+                or ''
+            ).strip() or None
+            limit = _parse_optional_int(request.args.get('limit'), minimum=1, maximum=100, default=20)
+            snapshots = db.list_ifood_order_snapshots(org_id=org_id, merchant_id=merchant_id, limit=limit)
+            return jsonify({
+                'success': True,
+                'module': 'Order',
+                'source': 'local_snapshots',
+                'merchant_id': merchant_id,
+                'orders': [_snapshot_order_summary(snapshot) for snapshot in snapshots],
+                'count': len(snapshots),
+            })
+        except Exception as e:
+            print(f"Error listing local iFood order snapshots: {e}")
             log_exception("request_exception", e)
             return internal_error_response()
 
@@ -1111,6 +1425,8 @@ def register(app, deps):
                     action='detalhes do pedido (GET /orders/{orderId})',
                     default_status=502
                 )
+            if isinstance(details, dict):
+                _persist_homologation_order_snapshot(details, source='homologation_details')
 
             return jsonify({
                 'success': True,
@@ -1119,6 +1435,34 @@ def register(app, deps):
             })
         except Exception as e:
             print(f"Error getting iFood order details: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/evidence')
+    @login_required
+    def api_ifood_homologation_order_evidence(order_id):
+        """Reviewer-friendly, redacted field evidence for an iFood order."""
+        try:
+            refresh = _is_truthy(request.args.get('refresh', '1'))
+            evidence, live_error = _build_order_evidence_for_current_org(order_id, allow_live_fetch=refresh)
+            if not evidence:
+                payload = {
+                    'success': False,
+                    'error': 'No local or live order evidence found for this order',
+                    'order_id': order_id,
+                }
+                if live_error:
+                    payload['live_error'] = live_error
+                return jsonify(payload), 404
+            if live_error:
+                evidence['live_fetch_warning'] = live_error
+            return jsonify({
+                'success': True,
+                'module': 'Order',
+                'evidence': evidence,
+            })
+        except Exception as e:
+            print(f"Error building iFood order evidence: {e}")
             log_exception("request_exception", e)
             return internal_error_response()
 
@@ -1202,6 +1546,7 @@ def register(app, deps):
                 begin_sales_date=begin_sales_date,
                 end_sales_date=end_sales_date,
                 page=page,
+                headers=HOMOLOGATION_FINANCIAL_HEADERS,
             )
             if payload is None:
                 return _ifood_error_response(
@@ -1220,6 +1565,7 @@ def register(app, deps):
                     'endSalesDate': end_sales_date,
                     'page': page,
                 },
+                'homologation_header': 'x-request-homologation=true',
                 'count': _count_financial_items(payload, 'sales'),
                 'payload': payload,
             })
@@ -1257,6 +1603,7 @@ def register(app, deps):
                 end_date_filter=end_date,
                 page=page,
                 size=size,
+                headers=HOMOLOGATION_FINANCIAL_HEADERS,
             )
             if payload is None:
                 return _ifood_error_response(
@@ -1276,6 +1623,7 @@ def register(app, deps):
                     'page': page,
                     'size': size,
                 },
+                'homologation_header': 'x-request-homologation=true',
                 'count': _count_financial_items(payload, 'financialEvents'),
                 'payload': payload,
             })
@@ -1303,6 +1651,7 @@ def register(app, deps):
             payload = api.get_financial_reconciliation(
                 merchant_id,
                 competence=competence,
+                headers=HOMOLOGATION_FINANCIAL_HEADERS,
             )
             if payload is None:
                 return _ifood_error_response(
@@ -1317,6 +1666,7 @@ def register(app, deps):
                 'api': 'Reconciliation',
                 'merchant_id': merchant_id,
                 'filters': {'competence': competence},
+                'homologation_header': 'x-request-homologation=true',
                 'payload': payload,
             })
         except Exception as e:
@@ -1347,6 +1697,7 @@ def register(app, deps):
             payload = api.request_financial_reconciliation_on_demand(
                 merchant_id,
                 competence=competence,
+                headers=HOMOLOGATION_FINANCIAL_HEADERS,
             )
             if payload is None:
                 return _ifood_error_response(
@@ -1361,6 +1712,7 @@ def register(app, deps):
                 'api': 'Reconciliation On Demand',
                 'merchant_id': merchant_id,
                 'filters': {'competence': competence},
+                'homologation_header': 'x-request-homologation=true',
                 'payload': payload,
             })
         except Exception as e:
@@ -1381,7 +1733,11 @@ def register(app, deps):
             if not merchant_id:
                 return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
 
-            payload = api.get_financial_reconciliation_on_demand_status(merchant_id, request_id)
+            payload = api.get_financial_reconciliation_on_demand_status(
+                merchant_id,
+                request_id,
+                headers=HOMOLOGATION_FINANCIAL_HEADERS,
+            )
             if payload is None:
                 return _ifood_error_response(
                     api,
@@ -1395,6 +1751,7 @@ def register(app, deps):
                 'api': 'Reconciliation On Demand Status',
                 'merchant_id': merchant_id,
                 'request_id': request_id,
+                'homologation_header': 'x-request-homologation=true',
                 'payload': payload,
             })
         except Exception as e:
@@ -1443,6 +1800,7 @@ def register(app, deps):
                 end_payment_date=end_payment_date,
                 begin_calculation_date=begin_calculation_date,
                 end_calculation_date=end_calculation_date,
+                headers=HOMOLOGATION_FINANCIAL_HEADERS,
             )
             if payload is None:
                 return _ifood_error_response(
@@ -1462,6 +1820,7 @@ def register(app, deps):
                     'beginCalculationDate': begin_calculation_date,
                     'endCalculationDate': end_calculation_date,
                 },
+                'homologation_header': 'x-request-homologation=true',
                 'count': _count_financial_items(payload, 'settlements'),
                 'payload': payload,
             })
@@ -1511,6 +1870,7 @@ def register(app, deps):
                 end_calculation_date=end_calculation_date,
                 begin_anticipated_payment_date=begin_anticipated_payment_date,
                 end_anticipated_payment_date=end_anticipated_payment_date,
+                headers=HOMOLOGATION_FINANCIAL_HEADERS,
             )
             if payload is None:
                 return _ifood_error_response(
@@ -1530,6 +1890,7 @@ def register(app, deps):
                     'beginAnticipatedPaymentDate': begin_anticipated_payment_date,
                     'endAnticipatedPaymentDate': end_anticipated_payment_date,
                 },
+                'homologation_header': 'x-request-homologation=true',
                 'count': _count_financial_items(payload, 'settlements'),
                 'payload': payload,
             })
@@ -1561,6 +1922,9 @@ def register(app, deps):
                 page=filters.get('page'),
                 page_size=filters.get('page_size'),
                 add_count=filters.get('add_count'),
+                date_from=filters.get('date_from'),
+                date_to=filters.get('date_to'),
+                status=filters.get('status'),
             )
             if payload is None:
                 return _ifood_error_response(
@@ -1584,6 +1948,9 @@ def register(app, deps):
                     'page': filters.get('page'),
                     'page_size': filters.get('page_size'),
                     'add_count': filters.get('add_count'),
+                    'dateFrom': filters.get('date_from'),
+                    'dateTo': filters.get('date_to'),
+                    'status': filters.get('status'),
                 },
                 'count': count,
                 'payload': payload,

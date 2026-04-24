@@ -2344,6 +2344,163 @@ class DashboardDatabase:
             cursor.close()
             conn.close()
 
+    def get_ifood_order_snapshot(self, org_id, order_id):
+        """Return the latest stored iFood order snapshot for one order."""
+        if not org_id or not order_id:
+            return None
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT org_id, merchant_id, order_id, source, status,
+                       order_updated_at, payload, created_at, updated_at
+                FROM ifood_order_snapshots
+                WHERE org_id=%s AND order_id=%s
+                ORDER BY updated_at DESC
+                LIMIT 1
+            """, (org_id, str(order_id).strip()))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            payload = row[6]
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except Exception:
+                    payload = {}
+            return {
+                'org_id': row[0],
+                'merchant_id': row[1],
+                'order_id': row[2],
+                'source': row[3],
+                'status': row[4],
+                'order_updated_at': row[5].isoformat() if isinstance(row[5], datetime) else None,
+                'payload': payload if isinstance(payload, dict) else {},
+                'created_at': row[7].isoformat() if isinstance(row[7], datetime) else None,
+                'updated_at': row[8].isoformat() if isinstance(row[8], datetime) else None,
+            }
+        except Exception as e:
+            print(f"⚠️ get_ifood_order_snapshot: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+
+    def list_ifood_order_snapshots(self, org_id=None, merchant_id=None, limit=20):
+        """Return recent stored iFood order snapshots for homologation evidence."""
+        conn = self.get_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor()
+        try:
+            safe_limit = max(1, min(100, int(limit or 20)))
+            where = []
+            params = []
+            if org_id is not None:
+                where.append("org_id=%s")
+                params.append(org_id)
+            if merchant_id:
+                where.append("merchant_id=%s")
+                params.append(str(merchant_id).strip())
+            where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+            cursor.execute(f"""
+                SELECT org_id, merchant_id, order_id, source, status,
+                       order_updated_at, payload, created_at, updated_at
+                FROM ifood_order_snapshots
+                {where_sql}
+                ORDER BY updated_at DESC
+                LIMIT %s
+            """, tuple(params + [safe_limit]))
+            rows = cursor.fetchall() or []
+            snapshots = []
+            for row in rows:
+                payload = row[6]
+                if isinstance(payload, str):
+                    try:
+                        payload = json.loads(payload)
+                    except Exception:
+                        payload = {}
+                snapshots.append({
+                    'org_id': row[0],
+                    'merchant_id': row[1],
+                    'order_id': row[2],
+                    'source': row[3],
+                    'status': row[4],
+                    'order_updated_at': row[5].isoformat() if isinstance(row[5], datetime) else None,
+                    'payload': payload if isinstance(payload, dict) else {},
+                    'created_at': row[7].isoformat() if isinstance(row[7], datetime) else None,
+                    'updated_at': row[8].isoformat() if isinstance(row[8], datetime) else None,
+                })
+            return snapshots
+        except Exception as e:
+            print(f"⚠️ list_ifood_order_snapshots: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+
+    def list_ifood_order_events(self, org_id=None, order_id=None, merchant_id=None, limit=50):
+        """Return recent stored iFood events, optionally scoped to an order."""
+        conn = self.get_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor()
+        try:
+            safe_limit = max(1, min(200, int(limit or 50)))
+            where = []
+            params = []
+            if org_id is not None:
+                where.append("org_id=%s")
+                params.append(org_id)
+            if order_id:
+                where.append("order_id=%s")
+                params.append(str(order_id).strip())
+            if merchant_id:
+                where.append("merchant_id=%s")
+                params.append(str(merchant_id).strip())
+            where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+            cursor.execute(f"""
+                SELECT org_id, merchant_id, source, dedupe_key, event_id,
+                       order_id, event_type, event_created_at, payload,
+                       processed_at, created_at
+                FROM ifood_event_log
+                {where_sql}
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, tuple(params + [safe_limit]))
+            rows = cursor.fetchall() or []
+            events = []
+            for row in rows:
+                payload = row[8]
+                if isinstance(payload, str):
+                    try:
+                        payload = json.loads(payload)
+                    except Exception:
+                        payload = {}
+                event_payload = payload if isinstance(payload, dict) else {}
+                event_payload.update({
+                    'org_id': row[0],
+                    'merchant_id': row[1],
+                    'source': row[2],
+                    'dedupe_key': row[3],
+                    'eventId': row[4],
+                    'orderId': row[5],
+                    'eventType': row[6],
+                    'event_created_at': row[7].isoformat() if isinstance(row[7], datetime) else None,
+                    'processed_at': row[9].isoformat() if isinstance(row[9], datetime) else None,
+                    'created_at': row[10].isoformat() if isinstance(row[10], datetime) else None,
+                })
+                events.append(event_payload)
+            return events
+        except Exception as e:
+            print(f"⚠️ list_ifood_order_events: {e}")
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+
     def list_all_organizations(self) -> List[Dict]:
         """List all organizations (global view for site/platform admins)."""
         conn = self.get_connection()

@@ -937,13 +937,18 @@ class IFoodAPI:
             data=clean_payload
         )
 
-    def list_reviews(self, merchant_id: str, page: int = None, page_size: int = None, add_count: bool = None):
+    def list_reviews(self, merchant_id: str, page: int = None, page_size: int = None,
+                     add_count: bool = None, date_from: str = None, date_to: str = None,
+                     status: str = None):
         if not merchant_id:
             return None
         params = self._clean_request_params({
             'page': page,
             'pageSize': page_size,
             'addCount': 'true' if add_count else 'false' if add_count is not None else None,
+            'dateFrom': date_from,
+            'dateTo': date_to,
+            'status': status,
         })
         if self.use_mock_data:
             return {
@@ -957,6 +962,8 @@ class IFoodAPI:
                         'comment': 'Great experience.',
                         'createdAt': datetime.utcnow().isoformat() + 'Z',
                         'status': 'NOT_REPLIED',
+                        'version': 'V2',
+                        'visibility': 'PUBLIC',
                         'score': 5,
                         'order': {'id': f'{merchant_id}-order-001', 'shortId': '1234'},
                         'replies': [],
@@ -978,6 +985,8 @@ class IFoodAPI:
                 'comment': 'Great experience.',
                 'createdAt': datetime.utcnow().isoformat() + 'Z',
                 'status': 'NOT_REPLIED',
+                'version': 'V2',
+                'visibility': 'PUBLIC',
                 'score': 5,
                 'order': {'id': f'{merchant_id}-order-001', 'shortId': '1234'},
                 'replies': [],
@@ -1542,6 +1551,7 @@ class IFoodAPI:
         size: int = None,
         begin_sales_date: str = None,
         end_sales_date: str = None,
+        headers: Dict = None,
     ) -> Optional[Dict]:
         """Get Financial API Sales records for a merchant."""
         begin_value = begin_sales_date or start_date
@@ -1563,6 +1573,7 @@ class IFoodAPI:
             'GET',
             self._financial_endpoint(f'/merchants/{merchant_id}/sales'),
             params=params,
+            headers=headers,
         )
 
     def get_financial_events(
@@ -1574,6 +1585,7 @@ class IFoodAPI:
         size: int = None,
         begin_date: str = None,
         end_date_filter: str = None,
+        headers: Dict = None,
     ) -> Optional[Dict]:
         """Get Financial API event ledger entries for a merchant."""
         begin_value = begin_date or start_date
@@ -1596,6 +1608,7 @@ class IFoodAPI:
             'GET',
             self._financial_endpoint(f'/merchants/{merchant_id}/financial-events'),
             params=params,
+            headers=headers,
         )
 
     def get_financial_reconciliation(
@@ -1604,6 +1617,7 @@ class IFoodAPI:
         competence: str = None,
         page: int = None,
         size: int = None,
+        headers: Dict = None,
     ) -> Optional[Dict]:
         """Get reconciliation export metadata for a competence month."""
         if self.use_mock_data:
@@ -1618,6 +1632,7 @@ class IFoodAPI:
             'GET',
             self._financial_endpoint(f'/merchants/{merchant_id}/reconciliation'),
             params=params,
+            headers=headers,
         )
 
     def request_financial_reconciliation_on_demand(
@@ -1626,6 +1641,7 @@ class IFoodAPI:
         competence: str,
         start_date: str = None,
         end_date: str = None,
+        headers: Dict = None,
     ) -> Optional[Dict]:
         """Request asynchronous reconciliation file generation for a competence month."""
         if self.use_mock_data:
@@ -1639,12 +1655,14 @@ class IFoodAPI:
             'POST',
             self._financial_endpoint(f'/merchants/{merchant_id}/reconciliation/on-demand'),
             data={'competence': competence},
+            headers=headers,
         )
 
     def get_financial_reconciliation_on_demand_status(
         self,
         merchant_id: str,
         request_id: str,
+        headers: Dict = None,
     ) -> Optional[Dict]:
         """Get reconciliation on demand generation status."""
         if self.use_mock_data:
@@ -1659,6 +1677,7 @@ class IFoodAPI:
             self._financial_endpoint(
                 f'/merchants/{merchant_id}/reconciliation/on-demand/{request_id}'
             ),
+            headers=headers,
         )
 
     def get_financial_settlements(
@@ -1672,6 +1691,7 @@ class IFoodAPI:
         end_date: str = None,
         page: int = None,
         size: int = None,
+        headers: Dict = None,
     ) -> Optional[Dict]:
         """Get Financial API settlements for a merchant."""
         begin_calc = begin_calculation_date or start_date
@@ -1693,6 +1713,7 @@ class IFoodAPI:
             'GET',
             self._financial_endpoint(f'/merchants/{merchant_id}/settlements'),
             params=params,
+            headers=headers,
         )
 
     def get_financial_anticipations(
@@ -1706,6 +1727,7 @@ class IFoodAPI:
         end_date: str = None,
         page: int = None,
         size: int = None,
+        headers: Dict = None,
     ) -> Optional[Dict]:
         """Get Financial API anticipation records for a merchant."""
         begin_calc = begin_calculation_date or start_date
@@ -1727,6 +1749,7 @@ class IFoodAPI:
             'GET',
             self._financial_endpoint(f'/merchants/{merchant_id}/anticipations'),
             params=params,
+            headers=headers,
         )
 
     def get_financial_settlement(

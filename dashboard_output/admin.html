@@ -482,6 +482,17 @@
                     .homolog-module-body .hm-btn-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:8px;}
                     .hm-sub{font-size:11px;font-weight:600;color:var(--text-secondary);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em;}
                     .hm-note{font-size:12px;color:var(--text-secondary);margin-top:4px;}
+                    .hm-evidence-panel{margin-top:10px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);padding:10px;}
+                    .hm-evidence-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-top:8px;}
+                    .hm-evidence-item{border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-primary);padding:8px;min-height:72px;}
+                    .hm-evidence-label{font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:4px;}
+                    .hm-evidence-value{font-size:12px;color:var(--text-secondary);word-break:break-word;line-height:1.35;}
+                    .hm-status{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;text-transform:uppercase;border-radius:999px;padding:2px 7px;margin-bottom:6px;}
+                    .hm-status.present{background:rgba(34,197,94,0.12);color:#16a34a;}
+                    .hm-status.missing{background:rgba(239,68,68,0.12);color:#dc2626;}
+                    .hm-status.not_applicable{background:rgba(148,163,184,0.14);color:var(--text-secondary);}
+                    .hm-candidate-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+                    .hm-candidate-list button{font-size:11px;padding:5px 8px;}
                 </style>
 
                 <!-- 1. Authentication -->
@@ -591,7 +602,9 @@
                         </div>
                         <div class="hm-btn-grid">
                             <button class="btn btn-secondary" onclick="homologListOrders()">GET /orders</button>
+                            <button class="btn btn-secondary" onclick="homologRecentOrders()">GET local recent orders</button>
                         </div>
+                        <div class="hm-candidate-list" id="homologRecentOrdersList"></div>
 
                         <div class="hm-sub">Pedido Selecionado</div>
                         <div class="form-group" style="margin-top:8px;">
@@ -604,6 +617,12 @@
                         <div class="hm-btn-grid">
                             <button class="btn btn-secondary" onclick="homologOrderDetails()">GET /orders/{orderId}</button>
                             <button class="btn btn-secondary" onclick="homologOrderVirtualBag()">GET /orders/{orderId}/virtual-bag</button>
+                            <button class="btn btn-secondary" onclick="homologOrderEvidence()">GET /orders/{orderId}/evidence</button>
+                        </div>
+                        <div class="hm-evidence-panel">
+                            <div class="hm-sub" style="margin-top:0;">Order Evidence</div>
+                            <div class="hm-note" id="homologOrderEvidenceSummary">Busque detalhes ou evidencia para preencher o checklist de homologacao.</div>
+                            <div class="hm-evidence-grid" id="homologOrderEvidenceGrid"></div>
                         </div>
 
                         <div class="hm-sub">Fluxo do Pedido (Delivery + Takeout)</div>
@@ -2360,6 +2379,81 @@
             }
         }
 
+        function homologEscape(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function compactEvidenceValue(value) {
+            if (value === null || value === undefined || value === '') return '-';
+            if (typeof value === 'object') {
+                try { return JSON.stringify(value); } catch (_) { return String(value); }
+            }
+            return String(value);
+        }
+
+        function renderOrderEvidence(evidence) {
+            const summaryEl = document.getElementById('homologOrderEvidenceSummary');
+            const gridEl = document.getElementById('homologOrderEvidenceGrid');
+            if (!summaryEl || !gridEl) return;
+            const fields = evidence?.fields || {};
+            const summary = evidence?.summary || {};
+            summaryEl.textContent = `Order ${evidence?.order_id || '-'} | ${summary.present || 0} presentes, ${summary.missing || 0} faltando, ${summary.not_applicable || 0} nao aplicaveis`;
+            const order = [
+                'order_status',
+                'order_timing',
+                'scheduled_time',
+                'payment_method',
+                'payment_brand',
+                'cash_change',
+                'discounts_subsidies',
+                'item_observations',
+                'customer_document',
+                'pickup_code',
+                'delivery_code',
+                'delivery_observations',
+                'cancellation_events',
+                'dispute_events',
+            ];
+            gridEl.innerHTML = order.map(key => {
+                const item = fields[key] || { status: 'missing', label: key };
+                const status = item.status || 'missing';
+                const label = item.label || key;
+                const value = compactEvidenceValue(item.value);
+                return `
+                    <div class="hm-evidence-item">
+                        <span class="hm-status ${homologEscape(status)}">${homologEscape(status)}</span>
+                        <div class="hm-evidence-label">${homologEscape(label)}</div>
+                        <div class="hm-evidence-value">${homologEscape(value)}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderRecentOrderCandidates(orders) {
+            const el = document.getElementById('homologRecentOrdersList');
+            if (!el) return;
+            if (!Array.isArray(orders) || orders.length === 0) {
+                el.innerHTML = '<span class="hm-note">Nenhum pedido local encontrado ainda.</span>';
+                return;
+            }
+            el.innerHTML = orders.slice(0, 12).map(order => {
+                const orderId = order.order_id || order.id || order.orderId || '';
+                const label = `${order.display_id || orderId} ${order.status ? '(' + order.status + ')' : ''}`;
+                return `<button class="btn btn-secondary" type="button" onclick="selectHomologOrder('${homologEscape(orderId)}')">${homologEscape(label)}</button>`;
+            }).join('');
+        }
+
+        function selectHomologOrder(orderId) {
+            const input = document.getElementById('homologOrderId');
+            if (input) input.value = orderId || '';
+            if (orderId) homologOrderEvidence(false);
+        }
+
         function getHomologOrderId() {
             const value = (document.getElementById('homologOrderId')?.value || '').trim();
             if (!value) {
@@ -2659,7 +2753,37 @@
         async function homologListOrders() {
             const query = buildHomologOrdersQuery();
             if (!query) return;
-            await callHomologationEndpoint('GET /orders', `/api/ifood/homologation/orders?${query}`);
+            const result = await callHomologationEndpoint('GET /orders', `/api/ifood/homologation/orders?${query}`);
+            try {
+                const orders = result?.body?.orders;
+                if (Array.isArray(orders) && orders.length > 0) {
+                    const firstId = orders[0]?.id || orders[0]?.orderId || '';
+                    const orderIdInput = document.getElementById('homologOrderId');
+                    if (orderIdInput && firstId) {
+                        orderIdInput.value = firstId;
+                        homologOrderEvidence(false);
+                        showToast(`${orders.length} pedido(s) encontrado(s). Primeiro ID preenchido automaticamente.`, 'success');
+                    }
+                }
+            } catch (_) { /* response already displayed in result panel */ }
+        }
+
+        async function homologRecentOrders() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            const query = new URLSearchParams({ merchant_id: merchantId, limit: '20' });
+            const result = await callHomologationEndpoint('GET /orders/recent', `/api/ifood/homologation/orders/recent?${query.toString()}`);
+            try {
+                const orders = result?.body?.orders || [];
+                renderRecentOrderCandidates(orders);
+                if (Array.isArray(orders) && orders.length > 0) {
+                    const firstId = orders[0]?.order_id || '';
+                    const orderIdInput = document.getElementById('homologOrderId');
+                    if (orderIdInput && firstId && !orderIdInput.value) {
+                        orderIdInput.value = firstId;
+                    }
+                }
+            } catch (_) { /* response already displayed in result panel */ }
         }
 
         async function homologOrderDetails() {
@@ -2669,6 +2793,19 @@
                 'GET /orders/{orderId}',
                 `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}`
             );
+            await homologOrderEvidence(false);
+        }
+
+        async function homologOrderEvidence(refresh = true) {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            const query = new URLSearchParams({ refresh: refresh ? '1' : '0' });
+            const result = await callHomologationEndpoint(
+                'GET /orders/{orderId}/evidence',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/evidence?${query.toString()}`
+            );
+            const evidence = result?.body?.evidence;
+            if (evidence) renderOrderEvidence(evidence);
         }
 
         async function homologOrderVirtualBag() {

@@ -1,6 +1,7 @@
 """Core route registrations by domain."""
 
 from app_routes.route_context import RouteContext
+from ifood_homologation_evidence import build_ifood_order_evidence, build_order_field_coverage
 
 
 REQUIRED_DEPS = [
@@ -20,6 +21,7 @@ REQUIRED_DEPS = [
     'RESTAURANTS_DATA',
     'Response',
     'USE_REDIS_QUEUE',
+    '_append_ifood_evidence_entry',
     '_extract_ifood_events_from_payload',
     '_extract_merchant_id_from_poll_event',
     '_extract_org_merchant_ids',
@@ -71,6 +73,7 @@ REQUIRED_DEPS = [
     'sse_manager',
     'stream_with_context',
     'threading',
+    'time',
 ]
 
 
@@ -93,6 +96,7 @@ def register_routes(bp, ctx: RouteContext):
     RESTAURANTS_DATA = deps['RESTAURANTS_DATA']
     Response = deps['Response']
     USE_REDIS_QUEUE = deps['USE_REDIS_QUEUE']
+    _append_ifood_evidence_entry = deps['_append_ifood_evidence_entry']
     _extract_ifood_events_from_payload = deps['_extract_ifood_events_from_payload']
     _extract_merchant_id_from_poll_event = deps['_extract_merchant_id_from_poll_event']
     _extract_org_merchant_ids = deps['_extract_org_merchant_ids']
@@ -144,6 +148,7 @@ def register_routes(bp, ctx: RouteContext):
     sse_manager = deps['sse_manager']
     stream_with_context = deps['stream_with_context']
     threading = deps['threading']
+    time = deps['time']
 
     @bp.route('/api/refresh-data', methods=['POST'])
     @admin_required
@@ -202,11 +207,21 @@ def register_routes(bp, ctx: RouteContext):
     @rate_limit(limit=240, window_seconds=60, scope='ifood_webhook')
     def api_ifood_webhook():
         """Receive iFood real-time events and feed the same pipeline used by polling."""
+        received_at = time.time()
         _update_ifood_ingestion_metrics(webhook_requests=1)
         raw_body = request.get_data(cache=True) or b''
         is_valid, auth_reason = _verify_ifood_webhook_request(raw_body)
         if not is_valid:
             _update_ifood_ingestion_metrics(webhook_last_error_at=datetime.now().isoformat())
+            _append_ifood_evidence_entry({
+                'type': 'ifood_webhook_rejected',
+                'reason': auth_reason,
+                'route': request.path,
+                'signature_present': bool(str(request.headers.get('X-IFood-Signature') or '').strip()),
+                'body_sha256': __import__('hashlib').sha256(raw_body).hexdigest() if raw_body else None,
+                'response_status': 401 if auth_reason in ('missing_signature', 'invalid_signature', 'invalid_token') else 503,
+                'response_ms': int((time.time() - received_at) * 1000),
+            })
             status_code = 401 if auth_reason in ('missing_signature', 'invalid_signature', 'invalid_token') else 503
             return jsonify({
                 'success': False,
@@ -222,7 +237,32 @@ def register_routes(bp, ctx: RouteContext):
                 payload = {}
         events = _extract_ifood_events_from_payload(payload)
         if not events:
+            _append_ifood_evidence_entry({
+                'type': 'ifood_webhook_received',
+                'route': request.path,
+                'event_kind': 'empty',
+                'events_received': 0,
+                'response_status': 202,
+                'response_ms': int((time.time() - received_at) * 1000),
+            })
             return jsonify({'success': True, 'received': 0, 'processed': 0, 'message': 'no_events'}), 202
+
+        def _is_keepalive_event(event):
+            if not isinstance(event, dict):
+                return False
+            return str(event.get('code') or event.get('fullCode') or '').strip().upper() == 'KEEPALIVE'
+
+        if events and all(_is_keepalive_event(event) for event in events):
+            _append_ifood_evidence_entry({
+                'type': 'ifood_webhook_keepalive',
+                'route': request.path,
+                'mode': 'app_level',
+                'event_ids': [str(event.get('id') or '').strip() for event in events if isinstance(event, dict) and event.get('id')],
+                'response_status': 202,
+                'response_ms': int((time.time() - received_at) * 1000),
+            })
+            return jsonify({'success': True, 'message': 'keepalive', 'presence_mode': 'app_level'}), 202
+
         payload_merchant_hint_raw = None
         if isinstance(payload, dict):
             payload_merchant_hint_raw = payload.get('merchantId') or payload.get('merchant_id')
@@ -237,78 +277,36 @@ def register_routes(bp, ctx: RouteContext):
                 if not _extract_merchant_id_from_poll_event(event):
                     event['merchantId'] = payload_merchant_hint
 
-        received = len(events)
-        processed = 0
-        deduplicated = 0
-        persisted = 0
-        cached = 0
-        updated = 0
-        errors = 0
-        unmatched_events = 0
-        changed_org_ids = set()
+        def _process_ifood_webhook_events_async(events_to_process, payload_snapshot, route_path, started_at):
+            received = len(events_to_process)
+            processed = 0
+            deduplicated = 0
+            persisted = 0
+            cached = 0
+            updated = 0
+            errors = 0
+            unmatched_events = 0
+            changed_org_ids = set()
 
-        grouped_by_merchant, orphan_events = _group_events_by_merchant(events)
-        for merchant_id, merchant_events in grouped_by_merchant.items():
-            org_ids = _find_org_ids_for_merchant_id(merchant_id)
-            if not org_ids:
-                unmatched_events += len(merchant_events)
-                continue
-            for org_id in org_ids:
-                try:
-                    api_client = _get_org_api_client_for_ingestion(org_id)
-                    if not api_client:
-                        errors += len(merchant_events)
-                        continue
-                    org_data = get_org_data(org_id)
-                    ingest_result = _process_ifood_events_for_merchant(
-                        org_id=org_id,
-                        org_data=org_data,
-                        api_client=api_client,
-                        merchant_id=merchant_id,
-                        merchant_events=merchant_events,
-                        source='webhook'
-                    )
-                    processed += int(ingest_result.get('events_new') or 0)
-                    deduplicated += int(ingest_result.get('events_deduplicated') or 0)
-                    persisted += int(ingest_result.get('orders_persisted') or 0)
-                    cached += int(ingest_result.get('orders_cached') or 0)
-                    updated += int(ingest_result.get('orders_updated') or 0)
-                    errors += int(ingest_result.get('errors') or 0)
-                    if ingest_result.get('org_data_changed'):
-                        changed_org_ids.add(org_id)
-                except Exception:
-                    errors += len(merchant_events)
-
-        if orphan_events:
-            single_target = None
-            for org_id, org_data in _org_data_items_snapshot():
-                if org_id is None:
+            grouped_by_merchant, orphan_events = _group_events_by_merchant(events_to_process)
+            for merchant_id, merchant_events in grouped_by_merchant.items():
+                org_ids = _find_org_ids_for_merchant_id(merchant_id)
+                if not org_ids:
+                    unmatched_events += len(merchant_events)
                     continue
-                config = org_data.get('config') if isinstance(org_data, dict) else {}
-                if not isinstance(config, dict) or not config:
-                    config = db.get_org_ifood_config(org_id) or {}
-                    if isinstance(org_data, dict) and isinstance(config, dict):
-                        org_data['config'] = config
-                org_merchant_ids = _extract_org_merchant_ids(config if isinstance(config, dict) else {})
-                if len(org_merchant_ids) == 1:
-                    if single_target is not None:
-                        single_target = None
-                        break
-                    single_target = (org_id, org_merchant_ids[0])
-            if single_target is None:
-                unmatched_events += len(orphan_events)
-            else:
-                org_id, merchant_id = single_target
-                try:
-                    api_client = _get_org_api_client_for_ingestion(org_id)
-                    if api_client:
+                for org_id in org_ids:
+                    try:
+                        api_client = _get_org_api_client_for_ingestion(org_id)
+                        if not api_client:
+                            errors += len(merchant_events)
+                            continue
                         org_data = get_org_data(org_id)
                         ingest_result = _process_ifood_events_for_merchant(
                             org_id=org_id,
                             org_data=org_data,
                             api_client=api_client,
                             merchant_id=merchant_id,
-                            merchant_events=orphan_events,
+                            merchant_events=merchant_events,
                             source='webhook'
                         )
                         processed += int(ingest_result.get('events_new') or 0)
@@ -319,46 +317,115 @@ def register_routes(bp, ctx: RouteContext):
                         errors += int(ingest_result.get('errors') or 0)
                         if ingest_result.get('org_data_changed'):
                             changed_org_ids.add(org_id)
-                    else:
+                    except Exception:
+                        errors += len(merchant_events)
+
+            if orphan_events:
+                single_target = None
+                for org_id, org_data in _org_data_items_snapshot():
+                    if org_id is None:
+                        continue
+                    config = org_data.get('config') if isinstance(org_data, dict) else {}
+                    if not isinstance(config, dict) or not config:
+                        config = db.get_org_ifood_config(org_id) or {}
+                        if isinstance(org_data, dict) and isinstance(config, dict):
+                            org_data['config'] = config
+                    org_merchant_ids = _extract_org_merchant_ids(config if isinstance(config, dict) else {})
+                    if len(org_merchant_ids) == 1:
+                        if single_target is not None:
+                            single_target = None
+                            break
+                        single_target = (org_id, org_merchant_ids[0])
+                if single_target is None:
+                    unmatched_events += len(orphan_events)
+                else:
+                    org_id, merchant_id = single_target
+                    try:
+                        api_client = _get_org_api_client_for_ingestion(org_id)
+                        if api_client:
+                            org_data = get_org_data(org_id)
+                            ingest_result = _process_ifood_events_for_merchant(
+                                org_id=org_id,
+                                org_data=org_data,
+                                api_client=api_client,
+                                merchant_id=merchant_id,
+                                merchant_events=orphan_events,
+                                source='webhook'
+                            )
+                            processed += int(ingest_result.get('events_new') or 0)
+                            deduplicated += int(ingest_result.get('events_deduplicated') or 0)
+                            persisted += int(ingest_result.get('orders_persisted') or 0)
+                            cached += int(ingest_result.get('orders_cached') or 0)
+                            updated += int(ingest_result.get('orders_updated') or 0)
+                            errors += int(ingest_result.get('errors') or 0)
+                            if ingest_result.get('org_data_changed'):
+                                changed_org_ids.add(org_id)
+                        else:
+                            errors += len(orphan_events)
+                    except Exception:
                         errors += len(orphan_events)
+
+            for org_id in list(changed_org_ids):
+                try:
+                    _persist_org_restaurants_cache(org_id, get_org_data(org_id))
+                    invalidate_cache(org_id)
                 except Exception:
-                    errors += len(orphan_events)
+                    errors += 1
 
-        for org_id in list(changed_org_ids):
-            try:
-                _persist_org_restaurants_cache(org_id, get_org_data(org_id))
-                invalidate_cache(org_id)
-            except Exception:
-                errors += 1
+            if changed_org_ids:
+                try:
+                    _save_data_snapshot()
+                except Exception:
+                    pass
 
-        if changed_org_ids:
-            try:
-                _save_data_snapshot()
-            except Exception:
-                pass
+            _update_ifood_ingestion_metrics(
+                events_received=received,
+                events_deduplicated=deduplicated,
+                events_processed=processed,
+                orders_persisted=persisted,
+                orders_cached=cached,
+                orders_updated=updated
+            )
+            if errors > 0:
+                _update_ifood_ingestion_metrics(webhook_last_error_at=datetime.now().isoformat())
+            _append_ifood_evidence_entry({
+                'type': 'ifood_webhook_processed',
+                'route': route_path,
+                'events_received': received,
+                'events_processed': processed,
+                'events_deduplicated': deduplicated,
+                'orders_persisted': persisted,
+                'orders_cached': cached,
+                'orders_updated': updated,
+                'unmatched_events': unmatched_events,
+                'orgs_changed': len(changed_org_ids),
+                'errors': errors,
+                'processing_ms': int((time.time() - started_at) * 1000),
+            })
 
-        _update_ifood_ingestion_metrics(
-            events_received=received,
-            events_deduplicated=deduplicated,
-            events_processed=processed,
-            orders_persisted=persisted,
-            orders_cached=cached,
-            orders_updated=updated
+        events_snapshot = [dict(event) for event in events if isinstance(event, dict)]
+        _append_ifood_evidence_entry({
+            'type': 'ifood_webhook_received',
+            'route': request.path,
+            'event_kind': 'order',
+            'events_received': len(events_snapshot),
+            'event_ids': [str(event.get('id') or '').strip() for event in events_snapshot if event.get('id')],
+            'response_status': 202,
+            'response_ms': int((time.time() - received_at) * 1000),
+        })
+        worker = threading.Thread(
+            target=_process_ifood_webhook_events_async,
+            args=(events_snapshot, payload if isinstance(payload, dict) else {}, request.path, time.time()),
+            daemon=True,
+            name='ifood-webhook-ingest'
         )
-        if errors > 0:
-            _update_ifood_ingestion_metrics(webhook_last_error_at=datetime.now().isoformat())
+        worker.start()
 
         return jsonify({
             'success': True,
-            'received': received,
-            'processed': processed,
-            'deduplicated': deduplicated,
-            'orders_persisted': persisted,
-            'orders_cached': cached,
-            'orders_updated': updated,
-            'unmatched_events': unmatched_events,
-            'orgs_changed': len(changed_org_ids),
-            'errors': errors
+            'received': len(events_snapshot),
+            'queued': len(events_snapshot),
+            'message': 'queued_for_processing'
         }), 202
 
     @bp.route('/api/events')
@@ -427,6 +494,24 @@ def register_routes(bp, ctx: RouteContext):
 
         entries = _snapshot_ifood_evidence_entries(limit=limit, org_id=org_id_filter)
         generated_at = _iso_utc_now()
+        order_scope_org_id = org_id_filter if str(org_id_filter or '').strip() else None
+        order_snapshots = db.list_ifood_order_snapshots(org_id=order_scope_org_id, limit=10)
+        order_evidence_samples = []
+        for snapshot in order_snapshots[:5]:
+            if not isinstance(snapshot, dict):
+                continue
+            order_id = snapshot.get('order_id')
+            events = db.list_ifood_order_events(
+                org_id=snapshot.get('org_id'),
+                order_id=order_id,
+                limit=50
+            ) if order_id else []
+            order_evidence_samples.append(build_ifood_order_evidence(
+                snapshot.get('payload') if isinstance(snapshot.get('payload'), dict) else {},
+                snapshot=snapshot,
+                events=events,
+            ))
+        order_field_coverage = build_order_field_coverage(order_evidence_samples)
 
         pack = {
             'success': True,
@@ -451,7 +536,7 @@ def register_routes(bp, ctx: RouteContext):
                 {
                     'name': 'Order',
                     'doc_module': 'order',
-                    'used_for': ['order details', 'order listing fallback', 'dashboard metrics'],
+                    'used_for': ['order details', 'order listing fallback', 'dashboard metrics', 'redacted homologation field evidence'],
                 },
             ],
             'backend_panel_module_scope': [
@@ -477,7 +562,7 @@ def register_routes(bp, ctx: RouteContext):
                     'name': 'Order',
                     'doc_module': 'order',
                     'status': 'active',
-                    'used_for': ['order details', 'order listing fallback', 'dashboard metrics'],
+                    'used_for': ['order details', 'order listing fallback', 'dashboard metrics', 'redacted homologation field evidence'],
                 },
                 {
                     'name': 'Financial Sales',
@@ -527,6 +612,8 @@ def register_routes(bp, ctx: RouteContext):
             },
             'entries_count': len(entries),
             'entries': entries,
+            'order_field_coverage': order_field_coverage,
+            'order_evidence_samples': order_evidence_samples,
             'evidence_log_file': IFOOD_EVIDENCE_LOG_FILE or None,
             'webhook_config': {
                 'configured': bool(IFOOD_WEBHOOK_SECRET or IFOOD_WEBHOOK_TOKEN or IFOOD_WEBHOOK_ALLOW_UNSIGNED),
@@ -550,6 +637,165 @@ def register_routes(bp, ctx: RouteContext):
             mimetype='application/json',
             headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'}
         )
+
+    @bp.route('/api/ifood/homologation/readiness')
+    @admin_required
+    def api_ifood_homologation_readiness():
+        """Summarize iFood homologation coverage for the modules implemented by this app."""
+        entries = _snapshot_ifood_evidence_entries(limit=500, org_id=None)
+        entry_types = {
+            str(entry.get('type') or '').strip()
+            for entry in entries
+            if isinstance(entry, dict)
+        }
+        metrics = _snapshot_ifood_ingestion_metrics()
+        order_snapshots = db.list_ifood_order_snapshots(org_id=None, limit=10)
+        order_evidence_samples = []
+        for snapshot in order_snapshots[:5]:
+            if not isinstance(snapshot, dict):
+                continue
+            order_id = snapshot.get('order_id')
+            events = db.list_ifood_order_events(
+                org_id=snapshot.get('org_id'),
+                order_id=order_id,
+                limit=50
+            ) if order_id else []
+            order_evidence_samples.append(build_ifood_order_evidence(
+                snapshot.get('payload') if isinstance(snapshot.get('payload'), dict) else {},
+                snapshot=snapshot,
+                events=events,
+            ))
+        order_field_coverage = build_order_field_coverage(order_evidence_samples)
+        required_order_fields = [
+            'order_status',
+            'order_timing',
+            'payment_method',
+            'payment_brand',
+            'discounts_subsidies',
+            'customer_document',
+        ]
+        has_order_samples = bool(order_evidence_samples)
+        has_core_order_field_coverage = all(
+            order_field_coverage.get(field, {}).get('covered')
+            for field in required_order_fields
+        )
+        order_readiness_status = (
+            'covered' if has_core_order_field_coverage
+            else 'partial' if has_order_samples or int(metrics.get('orders_persisted') or 0) > 0 or int(metrics.get('orders_cached') or 0) > 0
+            else 'gap'
+        )
+
+        def _module(status, implemented, evidence=None, gaps=None):
+            return {
+                'status': status,
+                'implemented': implemented,
+                'evidence': evidence or [],
+                'gaps': gaps or [],
+            }
+
+        modules = {
+            'Authentication': _module(
+                'covered',
+                [
+                    'Centralized client_credentials token flow',
+                    'Server-side token storage and near-expiry refresh',
+                    'Safe authentication probe endpoint',
+                ],
+            ),
+            'Merchant': _module(
+                'covered',
+                [
+                    'GET /merchants',
+                    'GET /merchants/{merchantId}',
+                    'GET /merchants/{merchantId}/status',
+                    'GET/POST /merchants/{merchantId}/interruptions',
+                    'DELETE /merchants/{merchantId}/interruptions/{id}',
+                    'GET/PUT /merchants/{merchantId}/opening-hours',
+                ],
+            ),
+            'Events': _module(
+                'covered',
+                [
+                    'Polling with x-polling-merchants',
+                    'Acknowledgment for polled events',
+                    'Webhook HMAC validation and app-level KEEPALIVE',
+                    'Webhook idempotency by event id/payload hash',
+                ],
+                evidence=[
+                    'webhook_received' if 'ifood_webhook_received' in entry_types else None,
+                    'webhook_keepalive' if 'ifood_webhook_keepalive' in entry_types else None,
+                    'webhook_rejected' if 'ifood_webhook_rejected' in entry_types else None,
+                    'webhook_processed' if 'ifood_webhook_processed' in entry_types else None,
+                ],
+            ),
+            'Order': _module(
+                order_readiness_status,
+                [
+                    'Receive/process order events',
+                    'Order details, virtual bag, confirmation, dispatch, ready-to-pickup',
+                    'Cancellation reasons before cancellation request',
+                    'Negotiation/dispute endpoints',
+                    'Pickup and delivery code validation helpers',
+                    'Redacted Order Evidence panel for status, payment brand, cash change, CPF/CNPJ, scheduled time, pickup code, discounts and delivery observations',
+                ],
+                evidence=[
+                    'orders_persisted' if int(metrics.get('orders_persisted') or 0) > 0 else None,
+                    'orders_cached' if int(metrics.get('orders_cached') or 0) > 0 else None,
+                    'order_evidence_samples' if has_order_samples else None,
+                    'core_order_fields_covered' if has_core_order_field_coverage else None,
+                ],
+                gaps=[
+                    field for field in required_order_fields
+                    if not order_field_coverage.get(field, {}).get('covered')
+                ],
+            ),
+            'Financial': _module(
+                'covered',
+                [
+                    'Sales',
+                    'Financial events',
+                    'Reconciliation',
+                    'Reconciliation on demand',
+                    'Settlements',
+                    'Anticipations',
+                    'Homologation header x-request-homologation=true on homologation routes',
+                ],
+            ),
+            'Review': _module(
+                'covered',
+                [
+                    'List reviews with page/pageSize/addCount/dateFrom/dateTo/status filters',
+                    'Review details',
+                    'Review answer',
+                    'Review summary',
+                ],
+            ),
+        }
+        for payload in modules.values():
+            payload['evidence'] = [item for item in payload.get('evidence', []) if item]
+
+        return jsonify({
+            'success': True,
+            'generated_at': _iso_utc_now(),
+            'presence_mode': 'app_level',
+            'supported_modules': list(modules.keys()),
+            'out_of_scope_modules': ['Catalog', 'Item', 'Promotion', 'Shipping', 'Picking'],
+            'webhook': {
+                'urls': ['/ifood/webhook', '/api/ifood/webhook'],
+                'auth_mode': (
+                    'hmac_sha256' if IFOOD_WEBHOOK_SECRET
+                    else 'token' if IFOOD_WEBHOOK_TOKEN
+                    else 'unsigned' if IFOOD_WEBHOOK_ALLOW_UNSIGNED
+                    else 'not_configured'
+                ),
+                'configured': bool(IFOOD_WEBHOOK_SECRET or IFOOD_WEBHOOK_TOKEN or IFOOD_WEBHOOK_ALLOW_UNSIGNED),
+            },
+            'modules': modules,
+            'ingestion_metrics': metrics,
+            'order_field_coverage': order_field_coverage,
+            'order_evidence_sample_count': len(order_evidence_samples),
+            'recent_evidence_types': sorted(entry_types),
+        })
 
     @bp.route('/api/dashboard/summary')
     @login_required

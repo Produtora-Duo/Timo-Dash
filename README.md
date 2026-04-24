@@ -22,9 +22,20 @@
 - `RUN_REFRESH_WORKER=true` (worker service only)
 - `IFOOD_KEEPALIVE_POLLING=true` (worker service; keeps test stores connected/open)
 - `IFOOD_POLL_INTERVAL_SECONDS=30` (worker service)
-- `IFOOD_WEBHOOK_SECRET=<hmac-shared-secret>` (recommended for `/api/ifood/webhook` and `/ifood/webhook`)
+- `IFOOD_WEBHOOK_SECRET=<ifood-client-secret>` (recommended for `/api/ifood/webhook` and `/ifood/webhook`; validates `X-IFood-Signature` with HMAC-SHA256 over the raw request body)
 - `IFOOD_WEBHOOK_TOKEN=<optional-bearer-token-fallback>` (used when secret is not configured)
 - `IFOOD_WEBHOOK_ALLOW_UNSIGNED=false` (set true only in local sandbox testing)
 - `ENABLE_LEGACY_FALLBACK=false`
 - `IFOOD_CLIENT_ID=<optional env fallback>`
 - `IFOOD_CLIENT_SECRET=<optional env fallback>`
+
+### iFood homologation notes
+
+- Supported iFood modules in this app: Authentication, Merchant, Events, Order, Financial, and Review.
+- Out of scope unless requested in the iFood app: Catalog, Item, Promotion, Shipping, and Picking.
+- Configure the Developer Portal webhook URL as `https://<your-domain>/ifood/webhook`.
+- Configure webhook presence as app-level (`Por aplicativo`). `KEEPALIVE` requests return `202 Accepted` and are not processed as orders.
+- Financial homologation proxy routes send `x-request-homologation: true` to iFood.
+- Admin evidence helpers:
+  - `GET /api/ifood/evidence-pack`
+  - `GET /api/ifood/homologation/readiness`
