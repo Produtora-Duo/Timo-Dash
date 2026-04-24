@@ -334,93 +334,109 @@
                     </div>
                 </div>
 
-                <!-- 3. Events / Polling -->
+                <!-- 3. Eventos & Acknowledgment (Requisito 1) -->
                 <div class="homolog-module">
                     <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                        <span>3. Events / Polling</span>
+                        <span>3. Eventos & Acknowledgment</span>
+                        <span class="hm-badge">Req 1: Consumo de eventos</span>
                         <span class="hm-chevron">&#9660;</span>
                     </div>
                     <div class="homolog-module-body">
-                        <div class="hm-sub" style="margin-top:0;">Polling</div>
+                        <div style="padding:10px;border-radius:var(--radius-lg);border:1px solid var(--border-light);background:rgba(249,112,21,0.08);font-size:12px;color:var(--text-secondary);line-height:1.5;">
+                            <strong>Loop obrigatório:</strong> consultar <code>/events:polling</code> a cada 30s e enviar <code>/acknowledgment</code> para TODOS os eventos recebidos. Eventos não acknowledged são re-entregues na próxima chamada.<br>
+                            <strong>Supermercados/Farmácias:</strong> máximo 2000 IDs por request de acknowledgment; pedidos importados via <code>/virtual-bag</code>.<br>
+                            <strong>Duplicatas:</strong> o backend deduplica por ID do evento (Req 7).<br>
+                            <strong>Sincronização:</strong> eventos externos atualizam status local (Req 8).
+                        </div>
+
+                        <div class="hm-sub">Polling Manual</div>
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-                            <input type="checkbox" id="homologAckEvents">
-                            <label for="homologAckEvents" style="font-size:13px;color:var(--text-secondary);cursor:pointer;">Acknowledge events after polling</label>
+                            <input type="checkbox" id="homologAckEvents" checked>
+                            <label for="homologAckEvents" style="font-size:13px;color:var(--text-secondary);cursor:pointer;">Enviar acknowledgment automático para os eventos recebidos (recomendado)</label>
                         </div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologPollEvents()">POST /events:polling</button>
+                            <button class="btn btn-secondary" onclick="homologPollEvents()">POST /events:polling (+ ack)</button>
                         </div>
-                        <div class="hm-sub">Diagnosticos</div>
+
+                        <div class="hm-sub">Polling Automático (cadência 30s)</div>
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
+                            <button class="btn btn-secondary" id="homologAutoPollBtn" onclick="toggleHomologAutoPoll()">Iniciar polling automático</button>
+                            <span id="homologAutoPollStatus" style="font-size:12px;color:var(--text-secondary);">Parado</span>
+                        </div>
+                        <div class="hm-note">Demonstra ao homologador a cadência de 30s + ack exigida pelo iFood. Força <code>ack=true</code> em cada chamada.</div>
+
+                        <div class="hm-sub">Sincronização & Evidências</div>
                         <div class="hm-btn-grid">
                             <button class="btn btn-secondary" onclick="homologRefreshStatus()">GET /refresh-status</button>
                             <button class="btn btn-secondary" onclick="homologEvidencePack()">GET /evidence-pack</button>
                         </div>
+                        <div class="hm-note">Use estes endpoints para consolidar o pacote de evidências (polling, acks, deduplicação, tempo médio de processamento).</div>
                     </div>
                 </div>
 
-                <!-- 4. Orders -->
+                <!-- 4. Pedidos - Ciclo de Homologação -->
                 <div class="homolog-module">
                     <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                        <span>4. Orders (Pedidos)</span>
-                        <span class="hm-badge">12 endpoints</span>
+                        <span>4. Pedidos - Ciclo de Homologação</span>
+                        <span class="hm-badge">Req 2, 3, 4, 5, 6</span>
                         <span class="hm-chevron">&#9660;</span>
                     </div>
                     <div class="homolog-module-body">
-                        <div class="hm-sub" style="margin-top:0;">Consulta</div>
-                        <div class="hm-row">
-                            <div class="form-group">
-                                <label class="form-label">Start date</label>
-                                <input type="text" class="form-input" id="homologOrdersStartDate" placeholder="2026-03-01">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">End date</label>
-                                <input type="text" class="form-input" id="homologOrdersEndDate" placeholder="2026-03-08">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Status (opcional)</label>
-                                <input type="text" class="form-input" id="homologOrderStatus" placeholder="CONCLUDED">
-                            </div>
+                        <div style="padding:10px;border-radius:var(--radius-lg);border:1px solid var(--border-light);background:var(--bg-secondary);font-size:12px;color:var(--text-secondary);line-height:1.5;">
+                            iFood <strong>não</strong> expõe <code>GET /orders</code>. Todo pedido chega via polling de eventos (módulo 3). Este painel opera sobre os pedidos já persistidos localmente a partir do polling.
+                        </div>
+
+                        <div class="hm-sub" style="margin-top:12px;">4.1 Pedido Selecionado</div>
+                        <div class="form-group" style="margin-top:8px;">
+                            <label class="form-label">Order ID (autopreenchido pelo polling)</label>
+                            <input type="text" class="form-input" id="homologOrderId" placeholder="ID do pedido recebido via polling">
+                            <div class="hm-note">O primeiro ID retornado pelo polling é preenchido automaticamente. Use "Listar pedidos persistidos" para escolher outro.</div>
                         </div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologListOrders()">GET /orders</button>
-                            <button class="btn btn-secondary" onclick="homologRecentOrders()">GET local recent orders</button>
+                            <button class="btn btn-secondary" onclick="homologRecentOrders()">Listar pedidos persistidos (local DB)</button>
                         </div>
                         <div class="hm-candidate-list" id="homologRecentOrdersList"></div>
 
-                        <div class="hm-sub">Pedido Selecionado</div>
-                        <div class="form-group" style="margin-top:8px;">
-                            <label class="form-label">Order ID</label>
-                            <input type="text" class="form-input" id="homologOrderId" placeholder="ID do pedido">
-                            <div class="hm-note">Use este ID nas seções de detalhes, fluxo, cancelamento e rastreamento.</div>
-                        </div>
-
-                        <div class="hm-sub">Detalhes</div>
+                        <div class="hm-sub">4.2 Consulta e Evidência de Exibição (Req 4, 5, 6 + Categoria)</div>
+                        <div class="hm-note">GET details entrega payload completo; /evidence valida o checklist de campos que devem aparecer na tela do pedido.</div>
                         <div class="hm-btn-grid">
                             <button class="btn btn-secondary" onclick="homologOrderDetails()">GET /orders/{orderId}</button>
-                            <button class="btn btn-secondary" onclick="homologOrderVirtualBag()">GET /orders/{orderId}/virtual-bag</button>
-                            <button class="btn btn-secondary" onclick="homologOrderEvidence()">GET /orders/{orderId}/evidence</button>
+                            <button class="btn btn-secondary" onclick="homologOrderVirtualBag()">GET /virtual-bag (Supermercado/Farmácia)</button>
+                            <button class="btn btn-secondary" onclick="homologOrderEvidence()">GET /evidence (checklist local)</button>
                         </div>
-                        <div class="hm-note">Virtual-bag e esperado para pedidos GROCERY. Em pedidos FOOD, use GET details + Order Evidence para provar itens e observacoes; se ainda retornar 403, o iFood negou esse recurso para o escopo atual do app/loja.</div>
                         <div class="hm-evidence-panel">
-                            <div class="hm-sub" style="margin-top:0;">Order Evidence</div>
-                            <div class="hm-note" id="homologOrderEvidenceSummary">Busque detalhes ou evidencia para preencher o checklist de homologacao.</div>
+                            <div class="hm-sub" style="margin-top:0;">Checklist de Exibição Obrigatória</div>
+                            <div class="hm-note" id="homologOrderEvidenceSummary">Busque detalhes ou evidência para preencher o checklist.</div>
+                            <div class="hm-note" style="margin-top:6px;font-size:11px;line-height:1.5;">
+                                <strong>Campos exigidos:</strong>
+                                Pagamento + bandeira do cartão (Req 4) ·
+                                Troco em dinheiro (Req 4) ·
+                                Cupons: valor + responsabilidade iFood/Loja (Req 5) ·
+                                Observações dos itens (Req 6) ·
+                                CPF/CNPJ (Req 6) ·
+                                Código de coleta (Req 6) ·
+                                Observações de entrega (Categoria: Restaurantes).
+                            </div>
                             <div class="hm-evidence-grid" id="homologOrderEvidenceGrid"></div>
                         </div>
 
-                        <div class="hm-sub">Fluxo do Pedido (Delivery + Takeout)</div>
+                        <div class="hm-sub">4.3 Confirmação (Requisito 2)</div>
+                        <div class="hm-note">Obrigatório para DELIVERY e TAKEOUT, pedidos imediatos e agendados, dentro do SLA do iFood.</div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologOrderConfirm()">POST confirm</button>
-                            <button class="btn btn-secondary" onclick="homologOrderStartPreparation()">POST startPreparation</button>
-                            <button class="btn btn-secondary" onclick="homologOrderDispatch()">POST dispatch</button>
-                            <button class="btn btn-secondary" onclick="homologOrderReadyToPickup()">POST readyToPickup</button>
+                            <button class="btn btn-secondary" onclick="homologOrderConfirm()">POST /confirm</button>
+                            <button class="btn btn-secondary" onclick="homologOrderStartPreparation()">POST /startPreparation</button>
+                            <button class="btn btn-secondary" onclick="homologOrderReadyToPickup()">POST /readyToPickup (TAKEOUT)</button>
+                            <button class="btn btn-secondary" onclick="homologOrderDispatch()">POST /dispatch (DELIVERY)</button>
                         </div>
 
-                        <div class="hm-sub">Cancelamento</div>
+                        <div class="hm-sub">4.4 Cancelamento (Requisito 3)</div>
+                        <div class="hm-note">Obrigatório exibir a lista de motivos retornada por <code>/cancellationReasons</code> antes de enviar a solicitação.</div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologOrderCancellationReasons()">1. GET cancellationReasons</button>
+                            <button class="btn btn-secondary" onclick="homologOrderCancellationReasons()">1. GET /cancellationReasons</button>
                         </div>
                         <div class="hm-row" style="margin-bottom:8px;">
                             <div class="form-group" style="margin:0;">
-                                <label class="form-label">Cancellation code</label>
+                                <label class="form-label">Cancellation code (do GET acima)</label>
                                 <input type="text" class="form-input" id="homologCancellationCode" placeholder="Busque os motivos primeiro">
                             </div>
                             <div class="form-group" style="margin:0;">
@@ -429,10 +445,10 @@
                             </div>
                         </div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologOrderRequestCancellation()">2. POST requestCancellation</button>
+                            <button class="btn btn-secondary" onclick="homologOrderRequestCancellation()">2. POST /requestCancellation</button>
                         </div>
 
-                        <div class="hm-sub">Rastreamento e Codigos</div>
+                        <div class="hm-sub">4.5 Rastreamento e Códigos</div>
                         <div class="hm-row" style="margin-bottom:8px;">
                             <div class="form-group" style="margin:0;">
                                 <label class="form-label">Pickup code</label>
@@ -444,9 +460,9 @@
                             </div>
                         </div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologOrderTracking()">POST tracking</button>
-                            <button class="btn btn-secondary" onclick="homologOrderValidatePickupCode()">POST validatePickupCode</button>
-                            <button class="btn btn-secondary" onclick="homologOrderVerifyDeliveryCode()">POST verifyDeliveryCode</button>
+                            <button class="btn btn-secondary" onclick="homologOrderTracking()">POST /tracking</button>
+                            <button class="btn btn-secondary" onclick="homologOrderValidatePickupCode()">POST /validatePickupCode (TAKEOUT)</button>
+                            <button class="btn btn-secondary" onclick="homologOrderVerifyDeliveryCode()">POST /verifyDeliveryCode (DELIVERY)</button>
                         </div>
                     </div>
                 </div>
@@ -454,8 +470,8 @@
                 <!-- 5. Negotiation Platform (Disputes) -->
                 <div class="homolog-module">
                     <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                        <span>5. Plataforma de Negociacao</span>
-                        <span class="hm-badge">3 endpoints</span>
+                        <span>5. Plataforma de Negociação</span>
+                        <span class="hm-badge">Req 9: Negociação</span>
                         <span class="hm-chevron">&#9660;</span>
                     </div>
                     <div class="homolog-module-body">
@@ -621,6 +637,7 @@
                         </div>
 
                         <div class="hm-sub">Anticipation</div>
+                        <div class="hm-note">Preencha APENAS um dos pares: datas de apuracao OU datas de pagamento antecipado. O iFood rejeita requisicoes que enviam ambos.</div>
                         <div class="hm-row" style="margin-bottom:8px;">
                             <div class="form-group" style="margin:0;">
                                 <label class="form-label">Calc begin</label>
@@ -1059,10 +1076,17 @@
                 showToast('Preencha datas de apuracao ou de pagamento antecipado para Antecipation', 'error');
                 return null;
             }
-            if (beginCalculationDate) params.set('beginCalculationDate', beginCalculationDate);
-            if (endCalculationDate) params.set('endCalculationDate', endCalculationDate);
-            if (beginAnticipatedPaymentDate) params.set('beginAnticipatedPaymentDate', beginAnticipatedPaymentDate);
-            if (endAnticipatedPaymentDate) params.set('endAnticipatedPaymentDate', endAnticipatedPaymentDate);
+            if (hasCalculationPair && hasPaymentPair) {
+                showToast('Use APENAS datas de apuracao OU de pagamento antecipado, nunca ambas', 'error');
+                return null;
+            }
+            if (hasCalculationPair) {
+                params.set('beginCalculationDate', beginCalculationDate);
+                params.set('endCalculationDate', endCalculationDate);
+            } else {
+                params.set('beginAnticipatedPaymentDate', beginAnticipatedPaymentDate);
+                params.set('endAnticipatedPaymentDate', endAnticipatedPaymentDate);
+            }
             return params.toString();
         }
 
@@ -1180,6 +1204,29 @@
                 '/api/ifood/homologation/events/polling',
                 { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchant_id: merchantId, ack }) }
             );
+        }
+
+        let homologAutoPollInterval = null;
+        function toggleHomologAutoPoll() {
+            const btn = document.getElementById('homologAutoPollBtn');
+            const status = document.getElementById('homologAutoPollStatus');
+            if (homologAutoPollInterval) {
+                clearInterval(homologAutoPollInterval);
+                homologAutoPollInterval = null;
+                if (btn) btn.textContent = 'Iniciar polling automático';
+                if (status) status.textContent = 'Parado';
+                showToast('Polling automático parado', 'success');
+                return;
+            }
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            const ackCheckbox = document.getElementById('homologAckEvents');
+            if (ackCheckbox) ackCheckbox.checked = true;
+            homologPollEvents();
+            homologAutoPollInterval = setInterval(() => { homologPollEvents(); }, 30000);
+            if (btn) btn.textContent = 'Parar polling automático';
+            if (status) status.textContent = 'Rodando (30s + ack)';
+            showToast('Polling automático iniciado (30s)', 'success');
         }
 
         async function homologRefreshStatus() {
